@@ -1,12 +1,12 @@
 /** api urls */
 const APIs = {
-	yosh: "https://api.yoshida.my.id",
+	yosh: "https://api.yoshx.me",
 	gratis: "https://api.apigratis.cc",
 };
 
 /** api key */
 const APIKeys = {
-	"": "",
+	"https://api.yoshx.me": "",
 };
 
 module.exports = API = (name, path = "/", query = {}, apikeyqueryname) =>
