@@ -1,5 +1,6 @@
 const express = require("express");
 const path = require("path");
+const { plugins } = require("@system/plugins");
 
 function startAdminPanel(conn, mydb) {
     const app = express();
@@ -10,6 +11,28 @@ function startAdminPanel(conn, mydb) {
 
     app.use(express.json());
     app.use(express.urlencoded({ extended: true }));
+
+    // Simple memory-based rate limiting applied to all /api/* routes (60 requests / 10s per IP)
+    const rateLimitMap = new Map();
+    app.use("/api/*", (req, res, next) => {
+        const ip = req.headers['x-forwarded-for'] || req.socket.remoteAddress || req.ip;
+        const now = Date.now();
+        const limitWindow = 10 * 1000; // 10 seconds
+        const maxRequests = 60;
+
+        if (!rateLimitMap.has(ip)) {
+            rateLimitMap.set(ip, []);
+        }
+
+        const timestamps = rateLimitMap.get(ip).filter(t => now - t < limitWindow);
+        if (timestamps.length >= maxRequests) {
+            return res.status(429).json({ error: "Too many requests. Please try again later." });
+        }
+
+        timestamps.push(now);
+        rateLimitMap.set(ip, timestamps);
+        next();
+    });
 
     // Helper to extract cookies manually (zero extra dependencies)
     function getCookie(req, name) {
@@ -23,8 +46,12 @@ function startAdminPanel(conn, mydb) {
         return null;
     }
 
-    // Cookie-based Express Authentication Middleware
+    // Cookie-based Express Authentication Middleware (TEMPORARILY BYPASSED)
     function requireAuth(req, res, next) {
+        // Deactivated for now as per user instruction.
+        return next();
+
+        /*
         const token = getCookie(req, "yoshida_session");
         const correctPassword = process.env.ADMIN_PASSWORD || "yoshida123";
         if (token === correctPassword) {
@@ -34,7 +61,23 @@ function startAdminPanel(conn, mydb) {
             return res.status(401).json({ error: "Unauthorized" });
         }
         res.redirect("/login");
+        */
     }
+
+    // HEALTH ENDPOINT (Public, bypassing requireAuth)
+    app.get("/health", (req, res) => {
+        try {
+            const uptimeSeconds = global.startTime ? Math.floor((Date.now() - global.startTime) / 1000) : 0;
+            const connected = !!(global.conn && global.conn.user);
+            res.json({
+                status: "ok",
+                uptimeSeconds,
+                connected
+            });
+        } catch (e) {
+            res.status(500).json({ error: e.message });
+        }
+    });
 
     // AUTH ROUTES
     app.get("/login", (req, res) => {
@@ -176,6 +219,8 @@ function startAdminPanel(conn, mydb) {
             // Connection state indicator
             const isConnected = !!(global.conn && global.conn.user);
 
+            const uptimeSeconds = global.startTime ? Math.floor((Date.now() - global.startTime) / 1000) : 0;
+
             res.json({
                 totalUsers,
                 activeUsersRightNow: activeRightNow || Math.min(totalUsers, 1),
@@ -188,7 +233,11 @@ function startAdminPanel(conn, mydb) {
                 hoursDistribution,
                 top5Users,
                 topWords,
-                isConnected
+                isConnected,
+                connectedNumber: global.connectedNumber || null,
+                uptimeSeconds,
+                qrAvailable: !!global.qrCodeDataURL,
+                reconnectAttempts: global.reconnectAttempts || 0
             });
         } catch (e) {
             console.error("Error generating stats:", e);
@@ -514,6 +563,243 @@ function startAdminPanel(conn, mydb) {
         }
     });
 
+    // GET /api/qr
+    app.get("/api/qr", requireAuth, (req, res) => {
+        try {
+            const connected = !!(global.conn && global.conn.user);
+            res.json({
+                qr: global.qrCodeDataURL,
+                generatedAt: global.qrGeneratedAt,
+                connected,
+                connectedNumber: global.connectedNumber
+            });
+        } catch (e) {
+            res.status(500).json({ error: e.message });
+        }
+    });
+
+    // POST /api/reconnect
+    app.post("/api/reconnect", requireAuth, (req, res) => {
+        try {
+            global.qrCodeDataURL = null;
+            res.json({ success: true });
+            setTimeout(() => {
+                console.log("[ ADMIN PANEL ] Reconnect requested, restarting process...");
+                if (process.send) {
+                    process.send("reset");
+                } else {
+                    process.exit(1);
+                }
+            }, 1000);
+        } catch (e) {
+            res.status(500).json({ error: e.message });
+        }
+    });
+
+    // GET /api/backup/download
+    app.get("/api/backup/download", requireAuth, (req, res) => {
+        try {
+            res.setHeader("Content-Type", "application/json");
+            res.setHeader("Content-Disposition", "attachment; filename=yoshida_backup.json");
+            res.send(JSON.stringify(global.db, null, 4));
+        } catch (e) {
+            res.status(500).json({ error: e.message });
+        }
+    });
+
+    // POST /api/backup/restore
+    app.post("/api/backup/restore", requireAuth, async (req, res) => {
+        try {
+            const backup = req.body;
+            if (!backup || typeof backup !== "object") {
+                return res.status(400).json({ error: "Backup inválido" });
+            }
+            if (!backup.users && !backup.groups && !backup.chats && !backup.setting) {
+                return res.status(400).json({ error: "El backup debe contener al menos una de las claves: users, groups, chats, setting" });
+            }
+            global.db = backup;
+            if (!global.db.systemLogs || !Array.isArray(global.db.systemLogs)) {
+                global.db.systemLogs = [];
+            }
+            if (!global.db.setting) {
+                global.db.setting = {};
+            }
+            if (!global.db.setting.disabledPlugins || !Array.isArray(global.db.setting.disabledPlugins)) {
+                global.db.setting.disabledPlugins = [];
+            }
+            if (!global.db.users) global.db.users = {};
+            if (!global.db.groups) global.db.groups = {};
+            if (!global.db.chats) global.db.chats = {};
+            if (!global.db.stats) global.db.stats = {};
+            if (!global.db.aiConfig || typeof global.db.aiConfig !== "object") {
+                global.db.aiConfig = {
+                    personality: "Eres Yoshida, una asistente sarcástica, divertida y amigable.",
+                    tone: "amigable",
+                    language: "es",
+                    maxLength: 1000,
+                    creativity: 0.7,
+                    provider: "gemini",
+                    apiKey: "",
+                    model: "gemini-2.0-flash",
+                    mcpEnabled: false,
+                    mcpServers: []
+                };
+            }
+            if (!global.db.aiRules || !Array.isArray(global.db.aiRules)) {
+                global.db.aiRules = [
+                    { id: "1", text: "No des información personal", priority: "alta" },
+                    { id: "2", text: "Siempre responde en español", priority: "alta" }
+                ];
+            }
+            if (!global.db.proactiveContacts || !Array.isArray(global.db.proactiveContacts)) {
+                global.db.proactiveContacts = [];
+            }
+            if (!global.db.recentLogs || !Array.isArray(global.db.recentLogs)) {
+                global.db.recentLogs = [];
+            }
+
+            await mydb.write(global.db);
+            res.json({ success: true });
+        } catch (e) {
+            res.status(500).json({ error: e.message });
+        }
+    });
+
+    // POST /api/broadcast
+    app.post("/api/broadcast", requireAuth, async (req, res) => {
+        try {
+            const { message } = req.body;
+            if (!message) {
+                return res.status(400).json({ error: "Mensaje vacío" });
+            }
+            const activeConn = global.conn;
+            if (!activeConn) {
+                return res.status(400).json({ error: "La conexión de WhatsApp no está activa o inicializada." });
+            }
+            const users = Object.entries(global.db.users || {})
+                .filter(([jid, u]) => !u.banned)
+                .map(([jid]) => jid);
+
+            // Send in background
+            (async () => {
+                for (const jid of users) {
+                    try {
+                        await activeConn.sendMessage(jid, { text: message });
+                        await new Promise(resolve => setTimeout(resolve, 3000));
+                    } catch (err) {
+                        console.error(`[ BROADCAST ] Error enviando a ${jid}:`, err);
+                    }
+                }
+            })();
+
+            res.json({ success: true, count: users.length });
+        } catch (e) {
+            res.status(500).json({ error: e.message });
+        }
+    });
+
+    // POST /api/test-message
+    app.post("/api/test-message", requireAuth, async (req, res) => {
+        try {
+            let { number } = req.body;
+            if (!number) {
+                number = process.env.PAIRING_NUMBER;
+            }
+            if (!number) {
+                return res.status(400).json({ error: "No se especificó número ni hay PAIRING_NUMBER definido" });
+            }
+            const cleaned = number.replace(/[^0-9]/g, "");
+            if (!cleaned) {
+                return res.status(400).json({ error: "Número inválido" });
+            }
+            const activeConn = global.conn;
+            if (!activeConn) {
+                return res.status(400).json({ error: "La conexión de WhatsApp no está activa o inicializada." });
+            }
+            const jid = `${cleaned}@s.whatsapp.net`;
+            await activeConn.sendMessage(jid, { text: "Este es un mensaje de prueba desde el Panel de Administración de Yoshida Bot." });
+            res.json({ success: true, jid });
+        } catch (e) {
+            res.status(500).json({ error: e.message });
+        }
+    });
+
+    // GET /api/plugins
+    app.get("/api/plugins", requireAuth, (req, res) => {
+        try {
+            const disabledList = global.db.setting.disabledPlugins || [];
+            const pluginKeys = Object.keys(plugins);
+            const allNames = Array.from(new Set([...pluginKeys, ...disabledList])).sort();
+            const list = allNames.map(name => ({
+                name,
+                disabled: disabledList.includes(name)
+            }));
+            res.json(list);
+        } catch (e) {
+            res.status(500).json({ error: e.message });
+        }
+    });
+
+    // POST /api/plugins/toggle
+    app.post("/api/plugins/toggle", requireAuth, async (req, res) => {
+        try {
+            const { name } = req.body;
+            if (!name) {
+                return res.status(400).json({ error: "Falta el nombre del plugin" });
+            }
+            if (!global.db.setting.disabledPlugins) {
+                global.db.setting.disabledPlugins = [];
+            }
+            const idx = global.db.setting.disabledPlugins.indexOf(name);
+            if (idx === -1) {
+                global.db.setting.disabledPlugins.push(name);
+            } else {
+                global.db.setting.disabledPlugins.splice(idx, 1);
+            }
+            await mydb.write(global.db);
+            res.json({ success: true, disabled: global.db.setting.disabledPlugins.includes(name) });
+        } catch (e) {
+            res.status(500).json({ error: e.message });
+        }
+    });
+
+    // GET /api/system-logs
+    app.get("/api/system-logs", requireAuth, (req, res) => {
+        try {
+            res.json(global.db.systemLogs || []);
+        } catch (e) {
+            res.status(500).json({ error: e.message });
+        }
+    });
+
+    // GET /api/users/:jid/export
+    app.get("/api/users/:jid/export", requireAuth, (req, res) => {
+        try {
+            const { jid } = req.params;
+            const u = global.db.users[jid];
+            if (!u) {
+                return res.status(404).json({ error: "Usuario no encontrado" });
+            }
+            const exportData = {
+                jid,
+                name: u.name,
+                hit: u.hit,
+                premium: u.premium,
+                banned: u.banned,
+                lastseen: u.lastseen,
+                level: u.level,
+                warn: u.warn,
+                limit: u.limit,
+                aiHistory: (u.activity && u.activity.aiHistory) || []
+            };
+            res.setHeader("Content-Type", "application/json");
+            res.setHeader("Content-Disposition", `attachment; filename=user_export_${jid.split("@")[0]}.json`);
+            res.send(JSON.stringify(exportData, null, 4));
+        } catch (e) {
+            res.status(500).json({ error: e.message });
+        }
+    });
+
     // TRIGGER SYSTEM RESTART ENDPOINT
     app.post("/api/restart", requireAuth, (req, res) => {
         res.json({ success: true });
@@ -525,6 +811,29 @@ function startAdminPanel(conn, mydb) {
                 process.exit(1);
             }
         }, 1000);
+    });
+
+    // PROCESS EXCEPTION HANDLERS
+    process.on("uncaughtException", async (err) => {
+        console.error("[ UNCAUGHT EXCEPTION ]", err);
+        if (typeof global.pushSystemLog === "function") {
+            global.pushSystemLog("critical", `Uncaught Exception: ${err.message}`);
+        }
+        if (typeof global.sendWebhookAlert === "function") {
+            await global.sendWebhookAlert("Uncaught Exception", err.stack || err.message);
+        }
+    });
+
+    process.on("unhandledRejection", async (reason, promise) => {
+        console.error("[ UNHANDLED REJECTION ]", reason);
+        const msg = reason instanceof Error ? reason.message : String(reason);
+        const stack = reason instanceof Error ? reason.stack : String(reason);
+        if (typeof global.pushSystemLog === "function") {
+            global.pushSystemLog("critical", `Unhandled Rejection: ${msg}`);
+        }
+        if (typeof global.sendWebhookAlert === "function") {
+            await global.sendWebhookAlert("Unhandled Rejection", stack || msg);
+        }
     });
 
     // START SERVER
