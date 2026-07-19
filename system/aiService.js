@@ -120,7 +120,22 @@ async function generateAIResponse(m, userText, conn) {
         }
 
         // Construct System Instruction dynamically
-        let systemInstruction = `${aiConfig.personality}\n\nTono de conversación: ${aiConfig.tone}\nIdioma principal: ${aiConfig.language}\n`;
+        const isAdmin = conn && conn.user && [
+            conn.decodeJid(conn.user.id).split`@`[0],
+            process.env.OWNER,
+            "5351080807",
+            ...(global.db.setting.owners || [])
+        ]
+            .map((v) => v + "@s.whatsapp.net")
+            .includes(m.sender);
+
+        let systemInstruction = "";
+        if (isAdmin && aiConfig.adminPersonality) {
+            systemInstruction = `${aiConfig.adminPersonality}\n\nTono de conversación: ${aiConfig.adminTone || aiConfig.tone}\nIdioma principal: ${aiConfig.language}\n`;
+        } else {
+            systemInstruction = `${aiConfig.personality}\n\nTono de conversación: ${aiConfig.tone}\nIdioma principal: ${aiConfig.language}\n`;
+        }
+
         if (aiRules.length > 0) {
             systemInstruction += "\nReglas que debes seguir estrictamente:\n";
             aiRules.forEach((rule, idx) => {

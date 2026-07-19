@@ -79,6 +79,44 @@ function startAdminPanel(conn, mydb) {
         }
     });
 
+    // PUBLIC ENDPOINT FOR GENERATED WEBSITES (Bypassing requireAuth)
+    app.get("/web/:id", (req, res) => {
+        try {
+            if (!global.db.generatedWebs) global.db.generatedWebs = {};
+            const web = global.db.generatedWebs[req.params.id];
+            if (!web) {
+                return res.status(404).send(`
+                    <html>
+                        <head><title>No encontrado</title><style>body { background: #0f172a; color: white; font-family: sans-serif; display: flex; align-items: center; justify-content: center; height: 100vh; margin: 0; }</style></head>
+                        <body><div><h1>404</h1><p>Sitio web no encontrado.</p></div></body>
+                    </html>
+                `);
+            }
+            res.setHeader("Content-Type", "text/html; charset=utf-8");
+            res.send(web.html);
+        } catch (err) {
+            res.status(500).send("Error interno: " + err.message);
+        }
+    });
+
+    // PUBLIC ENDPOINTS FOR INTERACTIVE PROGRESS VIEWER (Bypassing requireAuth)
+    app.get("/progress/:taskId", (req, res) => {
+        res.render("progress", { taskId: req.params.taskId });
+    });
+
+    app.get("/api/progress/:taskId", (req, res) => {
+        try {
+            if (!global.db.complexTasks) global.db.complexTasks = {};
+            const task = global.db.complexTasks[req.params.taskId];
+            if (!task) {
+                return res.status(404).json({ error: "Tarea no encontrada" });
+            }
+            res.json(task);
+        } catch (err) {
+            res.status(500).json({ error: err.message });
+        }
+    });
+
     // AUTH ROUTES
     app.get("/login", (req, res) => {
         const token = getCookie(req, "yoshida_session");
@@ -248,7 +286,7 @@ function startAdminPanel(conn, mydb) {
     // AI PERSONALITY ENDPOINT
     app.post("/api/personality", requireAuth, async (req, res) => {
         try {
-            const { personality, tone, language, maxLength, creativity, provider, model, apiKey, mcpEnabled } = req.body;
+            const { personality, tone, language, maxLength, creativity, provider, model, apiKey, mcpEnabled, adminPersonality, adminTone } = req.body;
 
             global.db.aiConfig.personality = personality;
             global.db.aiConfig.tone = tone;
@@ -259,6 +297,8 @@ function startAdminPanel(conn, mydb) {
             global.db.aiConfig.model = model;
             global.db.aiConfig.apiKey = apiKey;
             global.db.aiConfig.mcpEnabled = mcpEnabled === true;
+            global.db.aiConfig.adminPersonality = adminPersonality;
+            global.db.aiConfig.adminTone = adminTone;
 
             await mydb.write(global.db);
             res.json({ success: true, aiConfig: global.db.aiConfig });
@@ -270,10 +310,12 @@ function startAdminPanel(conn, mydb) {
     // BOT GENERAL SETTINGS ENDPOINT
     app.post("/api/bot-config", requireAuth, async (req, res) => {
         try {
-            const { botName, prefix, botStatus, pairingState, pairingNumber } = req.body;
+            const { botName, prefix, freeMessagesLimit, freeMessagesLimitDisabled, botStatus, pairingState, pairingNumber } = req.body;
 
             global.db.setting.botName = botName;
             global.db.setting.prefix = prefix;
+            global.db.setting.freeMessagesLimit = parseInt(freeMessagesLimit) || 10;
+            global.db.setting.freeMessagesLimitDisabled = freeMessagesLimitDisabled === true;
             global.db.setting.self_mode = !botStatus;
             global.db.setting.pairingState = pairingState === true;
             global.db.setting.pairingNumber = pairingNumber;
@@ -287,6 +329,53 @@ function startAdminPanel(conn, mydb) {
         } catch (e) {
             res.status(500).json({ error: e.message });
         }
+    });
+
+    // SCHEDULED MESSAGES ENDPOINTS
+    app.get("/api/schedules", requireAuth, (req, res) => {
+        res.json(global.db.scheduledMessages || []);
+    });
+
+    app.post("/api/schedules", requireAuth, async (req, res) => {
+        try {
+            const { time, message, target } = req.body;
+            const newSchedule = {
+                id: "sch_" + Date.now().toString(36),
+                time: parseInt(time),
+                message,
+                target: target || "all",
+                status: "pending",
+                createdAt: Date.now()
+            };
+            if (!global.db.scheduledMessages) global.db.scheduledMessages = [];
+            global.db.scheduledMessages.push(newSchedule);
+            await mydb.write(global.db);
+            res.json(newSchedule);
+        } catch (e) {
+            res.status(500).json({ error: e.message });
+        }
+    });
+
+    app.delete("/api/schedules/:id", requireAuth, async (req, res) => {
+        try {
+            if (global.db.scheduledMessages) {
+                global.db.scheduledMessages = global.db.scheduledMessages.filter(s => s.id !== req.params.id);
+                await mydb.write(global.db);
+            }
+            res.json({ success: true });
+        } catch (e) {
+            res.status(500).json({ error: e.message });
+        }
+    });
+
+    // WHATSAPP STATUS ENDPOINT
+    app.get("/api/statuses", requireAuth, (req, res) => {
+        res.json(global.db.receivedStatuses || []);
+    });
+
+    // POLLS ENDPOINT
+    app.get("/api/polls", requireAuth, (req, res) => {
+        res.json(global.db.polls || {});
     });
 
     // USER MANAGEMENT ENDPOINTS
