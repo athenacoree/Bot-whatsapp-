@@ -8,10 +8,73 @@
 	const { Boom } = require("@hapi/boom");
 	const NodeCache = require("node-cache");
 	const baileys = require("@whiskeysockets/baileys");
-	const { loadPlugins, watchPlugins } = require("@system/plugins");
+	const QRCode = require("qrcode");
+	const { loadPlugins, watchPlugins, plugins } = require("@system/plugins");
 	const { Client, serialize } = require("@system/socket");
 	const { Local, PostgreSQL } = require("@system/provider");
 	const { usePostgreSQLAuthState } = require("postgres-baileys");
+
+	/** [IMPLEMENTACION 15] Tiempo de arranque para uptime del panel */
+	global.startTime = Date.now();
+	global.connectedNumber = null;
+	global.qrCodeDataURL = null;
+	global.reconnectAttempts = 0;
+
+	/** [IMPLEMENTACION 15] Validacion de variables de entorno al iniciar.
+	 *  Evita crashes silenciosos a mitad de ejecucion (ej: REACT_STATUS vacio
+	 *  tumbaba el bot en el primer status de un contacto). */
+	function validateEnv() {
+		const warnings = [];
+		if (!process.env.REACT_STATUS) {
+			warnings.push("REACT_STATUS no está definida. Se usará un set de emojis por defecto.");
+		}
+		if (process.env.SESSION_TYPE && /postgres/i.test(process.env.SESSION_TYPE)) {
+			if (!process.env.DATABASE_URL && !(process.env.POSTGRES_HOST && process.env.POSTGRES_USER && process.env.POSTGRES_DATABASE)) {
+				warnings.push("SESSION_TYPE=postgres pero no hay DATABASE_URL ni POSTGRES_HOST/USER/DATABASE completos. La sesión caerá a almacenamiento local.");
+			}
+		}
+		if (process.env.PAIRING_STATE === "true" && !process.env.PAIRING_NUMBER) {
+			warnings.push("PAIRING_STATE=true pero PAIRING_NUMBER está vacío.");
+		}
+		if (warnings.length) {
+			console.log("\n[ ENV CHECK ] Se detectaron posibles problemas de configuración:");
+			warnings.forEach((w) => console.log(`  ⚠️  ${w}`));
+			console.log("");
+		} else {
+			console.log("[ ENV CHECK ] Variables de entorno OK.");
+		}
+	}
+	validateEnv();
+
+	/** [IMPLEMENTACION 13] Alerta por Webhook (Discord/Slack/genérico) ante eventos críticos.
+	 *  Configura WEBHOOK_URL en tus variables de entorno para activarlo. */
+	async function sendWebhookAlert(title, description) {
+		if (!process.env.WEBHOOK_URL) return;
+		try {
+			await fetch(process.env.WEBHOOK_URL, {
+				method: "POST",
+				headers: { "Content-Type": "application/json" },
+				body: JSON.stringify({
+					content: `**[YOSHIDA-BOT] ${title}**\n${description}`,
+					event: title,
+					message: description,
+					timestamp: new Date().toISOString(),
+				}),
+			});
+		} catch (e) {
+			console.error("[ WEBHOOK ] No se pudo enviar la alerta:", e.message);
+		}
+	}
+	global.sendWebhookAlert = sendWebhookAlert;
+
+	/** [IMPLEMENTACION 12] Registro de eventos del sistema (no confundir con logs de chat).
+	 *  Visible desde el panel en la pestaña Sistema. */
+	function pushSystemLog(level, message) {
+		if (!global.db.systemLogs) global.db.systemLogs = [];
+		global.db.systemLogs.unshift({ level, message, timestamp: Date.now() });
+		if (global.db.systemLogs.length > 200) global.db.systemLogs.length = 200;
+	}
+	global.pushSystemLog = pushSystemLog;
 
 	/** postgreSQL cfg */
 	let postgreSQLConfig = {
@@ -96,6 +159,14 @@
 
 	if (!global.db.recentLogs || !Array.isArray(global.db.recentLogs)) {
 		global.db.recentLogs = [];
+	}
+
+	if (!global.db.systemLogs || !Array.isArray(global.db.systemLogs)) {
+		global.db.systemLogs = [];
+	}
+
+	if (!global.db.setting.disabledPlugins || !Array.isArray(global.db.setting.disabledPlugins)) {
+		global.db.setting.disabledPlugins = [];
 	}
 
 	await mydb.write(global.db);
@@ -232,6 +303,16 @@
 
 		global.conn = conn; // Keep active connection globally accessible for the admin panel!
 
+		/** [IMPLEMENTACION 10] Aplicar plugins deshabilitados desde el panel sin redeploy */
+		const enforceDisabledPlugins = () => {
+			const disabled = (global.db.setting && global.db.setting.disabledPlugins) || [];
+			for (const name of disabled) {
+				if (plugins[name]) delete plugins[name];
+			}
+		};
+		enforceDisabledPlugins();
+		setInterval(enforceDisabledPlugins, 5000);
+
 		store.bind(conn.ev);
 		await Client({ conn, store });
 
@@ -266,9 +347,32 @@
 			}
 		}
 
+		/** [IMPLEMENTACION 3] Reconexion con backoff exponencial (evita spamear a los
+		 *  servidores de WhatsApp y reduce el riesgo de baneo por reconexiones agresivas) */
+		const scheduledReconnect = async (label) => {
+			global.reconnectAttempts = (global.reconnectAttempts || 0) + 1;
+			const delayMs = Math.min(30000, 1000 * (2 ** global.reconnectAttempts));
+			console.log(`[+] ${label}. Reintentando en ${(delayMs / 1000).toFixed(1)}s (intento ${global.reconnectAttempts})...`);
+			pushSystemLog("warn", `${label}. Reintento #${global.reconnectAttempts} en ${(delayMs / 1000).toFixed(1)}s`);
+			await new Promise((resolve) => setTimeout(resolve, delayMs));
+			await connectWA();
+		};
+
 		conn.ev.on("connection.update", async (update) => {
-			const { lastDisconnect, connection, receivedPendingNotifications } =
+			const { lastDisconnect, connection, receivedPendingNotifications, qr } =
 				update;
+
+			/** [IMPLEMENTACION 1] Captura real del QR como imagen para el panel */
+			if (qr) {
+				try {
+					global.qrCodeDataURL = await QRCode.toDataURL(qr);
+					global.qrGeneratedAt = Date.now();
+					console.log("[+] Nuevo QR generado, disponible en el panel de administración.");
+				} catch (e) {
+					console.error("[ QR ] Error generando imagen QR:", e.message);
+				}
+			}
+
 			if (
 				receivedPendingNotifications &&
 				!conn.authState.creds?.myAppStateKeyId
@@ -279,26 +383,24 @@
 				let reason = new Boom(lastDisconnect?.error)?.output.statusCode;
 				switch (reason) {
 					case 408:
-						console.log("[+] Connection timed out. restarting...");
-						await connectWA();
+						await scheduledReconnect("Connection timed out");
 						break;
 					case 503:
-						console.log("[+] Unavailable service. restarting...");
-						await connectWA();
+						await scheduledReconnect("Unavailable service");
 						break;
 					case 428:
-						console.log("[+] Connection closed, restarting...");
-						await connectWA();
+						await scheduledReconnect("Connection closed");
 						break;
 					case 515:
-						console.log("[+] Need to restart, restarting...");
-						await connectWA();
+						await scheduledReconnect("Need to restart");
 						break;
 					case 401:
 						try {
 							console.log(
 								"[+] Session Logged Out.. Recreate session..."
 							);
+							pushSystemLog("error", "Sesión cerrada (401). Se recreará la sesión.");
+							await sendWebhookAlert("Sesión cerrada", "El bot se desconectó de WhatsApp (401) y se está recreando la sesión.");
 							await deleteSession();
 							console.log("[+] Session removed!!");
 							process.send("reset");
@@ -308,6 +410,8 @@
 						break;
 					case 403:
 						console.log(`[+] Your WhatsApp Has Been Baned :D`);
+						pushSystemLog("critical", "El número fue baneado por WhatsApp (403).");
+						await sendWebhookAlert("⚠️ Cuenta baneada", "WhatsApp ha bloqueado este número (403). Revisa el panel.");
 						await deleteSession();
 						process.exit();
 						break;
@@ -316,6 +420,8 @@
 							console.log(
 								"[+] Session Not Logged In.. Recreate session..."
 							);
+							pushSystemLog("error", "Sesión no válida (405). Se recreará la sesión.");
+							await sendWebhookAlert("Sesión inválida", "WhatsApp rechazó la sesión (405). Se recreará y se necesitará un nuevo QR o pairing code.");
 							await deleteSession();
 							console.log("[+] Session removed!!");
 							process.send("reset");
@@ -324,10 +430,16 @@
 						}
 						break;
 					default:
+						await scheduledReconnect(`Conexión cerrada (código ${reason || "desconocido"})`);
 				}
 			}
 			if (connection === "open") {
 				console.log("[+] Connected. . .");
+				global.reconnectAttempts = 0;
+				global.qrCodeDataURL = null;
+				global.connectedAt = Date.now();
+				global.connectedNumber = conn.user?.id ? conn.user.id.split(":")[0].split("@")[0] : null;
+				pushSystemLog("info", `Conectado correctamente${global.connectedNumber ? " (" + global.connectedNumber + ")" : ""}.`);
 			}
 		});
 
@@ -554,9 +666,4 @@
 		console.error("[ ADMIN PANEL ERROR ] Failed to start admin panel:", e);
 	}
 
-	if (process.env.SKIP_WA === "true") {
-		console.log("[ MACHINE ] SKIP_WA is true. Skipping WhatsApp connection logic for local development.");
-	} else {
-		connectWA();
-	}
-})();
+	/** [IMPLEMENTACI
