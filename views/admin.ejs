@@ -133,9 +133,9 @@
         </div>
 
         <div class="flex items-center gap-3">
-            <a href="/logout" class="px-4 py-2 bg-red-600/10 hover:bg-red-600/20 text-red-400 border border-red-500/15 text-xs font-semibold rounded-xl transition-all flex items-center gap-1.5">
-                <i class="fa-solid fa-sign-out-alt"></i> Salir
-            </a>
+            <div class="px-4 py-2 bg-amber-500/10 text-amber-400 border border-amber-500/15 text-xs font-semibold rounded-xl flex items-center gap-1.5" title="La autenticación ha sido desactivada temporalmente. El acceso al panel de control está liberado de contraseña.">
+                <i class="fa-solid fa-triangle-exclamation"></i> Panel sin contraseña
+            </div>
         </div>
     </header>
 
@@ -175,6 +175,10 @@
             <button onclick="switchTab('config')" id="tab-config" class="tab-btn flex items-center gap-3 px-5 py-3.5 rounded-2xl glass-card text-left font-semibold w-full min-w-[150px] lg:min-w-0">
                 <i class="fa-solid fa-gears text-amber-500 text-lg"></i>
                 <span>Configuración</span>
+            </button>
+            <button onclick="switchTab('system')" id="tab-system" class="tab-btn flex items-center gap-3 px-5 py-3.5 rounded-2xl glass-card text-left font-semibold w-full min-w-[150px] lg:min-w-0">
+                <i class="fa-solid fa-server text-blue-500 text-lg"></i>
+                <span>Sistema</span>
             </button>
         </nav>
 
@@ -273,6 +277,38 @@
                             </button>
                         </div>
                     </form>
+                </div>
+
+                <!-- Live Connection & QR Status Card -->
+                <div class="glass-card p-7 rounded-[30px] mt-6">
+                    <h2 class="text-xl font-bold mb-4 flex items-center gap-2">
+                        <i class="fa-solid fa-qrcode text-pink-500"></i>
+                        Estado de Conexión de WhatsApp y Código QR
+                    </h2>
+                    <div class="grid grid-cols-1 md:grid-cols-2 gap-6 items-center">
+                        <div class="space-y-4">
+                            <div>
+                                <p class="text-xs font-semibold text-gray-400 uppercase tracking-wider mb-1">Número Vinculado</p>
+                                <p id="connectedNumberDisplay" class="text-lg font-bold text-white">No vinculado</p>
+                            </div>
+                            <div>
+                                <p class="text-xs font-semibold text-gray-400 uppercase tracking-wider mb-1">Tiempo Activo (Uptime)</p>
+                                <p id="uptimeDisplay" class="text-lg font-bold text-white">0s</p>
+                            </div>
+                            <button type="button" onclick="reconnectBot()" class="w-full sm:w-auto px-6 py-3 bg-gradient-to-r from-pink-500 to-purple-600 hover:opacity-90 active:scale-95 text-white font-bold rounded-2xl text-sm transition-all flex items-center justify-center gap-2 shadow-lg shadow-pink-500/10">
+                                <i class="fa-solid fa-rotate"></i> Reconectar / Generar Nuevo QR
+                            </button>
+                        </div>
+                        <div class="flex flex-col items-center justify-center p-4 rounded-2xl bg-black/30 border border-white/5 min-h-[220px]">
+                            <!-- QR Image Container -->
+                            <div id="qrContainer" class="w-48 h-48 flex items-center justify-center text-center">
+                                <p class="text-xs text-gray-400 italic">Cargando código QR...</p>
+                            </div>
+                            <div id="qrStatusText" class="text-xs font-bold mt-2 text-gray-400 flex items-center gap-1.5">
+                                <span id="qrStatusDot" class="w-2 h-2 rounded-full bg-yellow-500 pulse-dot inline-block"></span> <span id="qrStatusLabel">Esperando QR...</span>
+                            </div>
+                        </div>
+                    </div>
                 </div>
             </div>
 
@@ -607,6 +643,113 @@
                 </div>
             </div>
 
+            <!-- TAB: SISTEMA -->
+            <div id="panel-system" class="tab-panel space-y-6 hidden">
+
+                <!-- Backup Card -->
+                <div class="glass-card p-7 rounded-[30px]">
+                    <h2 class="text-xl font-bold mb-4 flex items-center gap-2">
+                        <i class="fa-solid fa-database text-blue-500"></i>
+                        Copia de Seguridad (Backup)
+                    </h2>
+                    <div class="grid grid-cols-1 md:grid-cols-2 gap-6">
+                        <div class="space-y-2">
+                            <h3 class="text-sm font-semibold text-gray-300">Descargar Copia de Seguridad</h3>
+                            <p class="text-xs text-gray-400">Exporta toda la base de datos actual (usuarios, configuraciones, reglas, etc.) en un solo archivo JSON.</p>
+                            <button onclick="downloadBackup()" class="px-5 py-2.5 bg-gradient-to-r from-blue-500 to-indigo-600 hover:opacity-90 active:scale-95 text-white text-xs font-bold rounded-2xl transition-all flex items-center gap-2 shadow-lg shadow-blue-500/10">
+                                <i class="fa-solid fa-download"></i> Descargar Backup
+                            </button>
+                        </div>
+                        <div class="space-y-2">
+                            <h3 class="text-sm font-semibold text-gray-300">Restaurar Copia de Seguridad</h3>
+                            <p class="text-xs text-gray-400">Sube un archivo JSON de respaldo para reemplazar completamente la base de datos actual del sistema.</p>
+                            <div class="flex items-center gap-2">
+                                <input type="file" id="backupFileInput" accept=".json" class="hidden" onchange="restoreBackup(event)">
+                                <button onclick="document.getElementById('backupFileInput').click()" class="px-5 py-2.5 bg-gradient-to-r from-emerald-500 to-teal-600 hover:opacity-90 active:scale-95 text-white text-xs font-bold rounded-2xl transition-all flex items-center gap-2 shadow-lg shadow-emerald-500/10">
+                                    <i class="fa-solid fa-upload"></i> Seleccionar y Restaurar Backup
+                                </button>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Messaging & Diffusion Card -->
+                <div class="grid grid-cols-1 md:grid-cols-2 gap-6">
+                    <!-- Test Message Card -->
+                    <div class="glass-card p-7 rounded-[30px] flex flex-col justify-between">
+                        <div>
+                            <h2 class="text-xl font-bold mb-3 flex items-center gap-2">
+                                <i class="fa-solid fa-comment-dots text-purple-500"></i>
+                                Mensaje de Prueba
+                            </h2>
+                            <p class="text-xs text-gray-400 mb-4">Envía un mensaje de prueba instantáneo para comprobar el correcto funcionamiento de la conexión con WhatsApp.</p>
+                        </div>
+                        <form onsubmit="sendTestMessage(event)" class="space-y-3">
+                            <div>
+                                <label class="block text-xs font-semibold text-gray-400 uppercase tracking-wider mb-2">Número de Teléfono</label>
+                                <input type="text" id="testMessageNumber" placeholder="ej: 521234567890 o vacío para usar PAIRING_NUMBER" class="w-full rounded-2xl bg-black/40 border border-white/10 px-4 py-3 text-xs text-white focus:border-purple-500 outline-none">
+                            </div>
+                            <button type="submit" class="w-full px-5 py-3 bg-gradient-to-r from-purple-500 to-pink-600 hover:opacity-90 active:scale-95 text-white font-bold rounded-2xl text-xs transition-all flex items-center justify-center gap-2 shadow-lg shadow-purple-500/10">
+                                <i class="fa-solid fa-paper-plane"></i> Enviar Mensaje de Prueba
+                            </button>
+                        </form>
+                    </div>
+
+                    <!-- Diffusion Card -->
+                    <div class="glass-card p-7 rounded-[30px] flex flex-col justify-between">
+                        <div>
+                            <h2 class="text-xl font-bold mb-3 flex items-center gap-2">
+                                <i class="fa-solid fa-bullhorn text-cyan-500"></i>
+                                Difusión a Todos los Usuarios
+                            </h2>
+                            <p class="text-xs text-gray-400 mb-4">Envía un mensaje masivo a todos los usuarios registrados que no se encuentren baneados, con una pausa de 3 segundos entre envíos.</p>
+                        </div>
+                        <form onsubmit="sendBroadcast(event)" class="space-y-3">
+                            <div>
+                                <label class="block text-xs font-semibold text-gray-400 uppercase tracking-wider mb-2">Mensaje de Difusión</label>
+                                <textarea id="broadcastMessageText" rows="3" required placeholder="Escribe el mensaje que recibirán todos los usuarios..." class="w-full rounded-2xl bg-black/40 border border-white/10 px-4 py-3 text-xs text-white focus:border-cyan-500 outline-none resize-none"></textarea>
+                            </div>
+                            <button type="submit" class="w-full px-5 py-3 bg-gradient-to-r from-cyan-500 to-blue-600 hover:opacity-90 active:scale-95 text-white font-bold rounded-2xl text-xs transition-all flex items-center justify-center gap-2 shadow-lg shadow-cyan-500/10">
+                                <i class="fa-solid fa-users"></i> Iniciar Difusión Masiva
+                            </button>
+                        </form>
+                    </div>
+                </div>
+
+                <!-- Plugins and System Logs Card -->
+                <div class="grid grid-cols-1 lg:grid-cols-3 gap-6">
+                    <!-- Plugins List -->
+                    <div class="glass-card p-7 rounded-[30px] lg:col-span-1 flex flex-col">
+                        <h2 class="text-xl font-bold mb-3 flex items-center gap-2">
+                            <i class="fa-solid fa-puzzle-piece text-amber-500"></i>
+                            Plugins / Módulos
+                        </h2>
+                        <p class="text-xs text-gray-400 mb-4">Activa o desactiva las funciones del bot en tiempo real sin reiniciar.</p>
+                        <div id="systemPluginsList" class="space-y-2 overflow-y-auto max-h-[300px] pr-1">
+                            <p class="text-xs text-gray-500 italic">Cargando plugins...</p>
+                        </div>
+                    </div>
+
+                    <!-- System Logs -->
+                    <div class="glass-card p-7 rounded-[30px] lg:col-span-2 flex flex-col">
+                        <div class="flex justify-between items-center mb-3">
+                            <h2 class="text-xl font-bold flex items-center gap-2">
+                                <i class="fa-solid fa-terminal text-emerald-500"></i>
+                                Logs del Sistema
+                            </h2>
+                            <button onclick="loadSystemLogs()" class="text-[10px] bg-white/5 hover:bg-white/10 border border-white/10 px-2.5 py-1.5 rounded-xl font-semibold flex items-center gap-1.5 text-gray-300">
+                                <i class="fa-solid fa-arrows-rotate"></i> Actualizar Logs
+                            </button>
+                        </div>
+                        <p class="text-xs text-gray-400 mb-4">Registros de eventos internos del sistema (conexión, reconexiones, errores críticos).</p>
+                        <div id="systemLogsContainer" class="rounded-2xl bg-black/40 border border-white/10 p-4 font-mono text-[10px] overflow-y-auto h-[300px] space-y-1.5 pr-2">
+                            <p class="text-gray-500 italic">Cargando logs del sistema...</p>
+                        </div>
+                    </div>
+                </div>
+
+            </div>
+
         </section>
     </main>
 
@@ -628,10 +771,12 @@
             // Poll for statistics, logs and state instantly on startup
             fetchTelemetryData();
             loadUsers();
+            pollQRStatus();
 
             // Set up AJAX polling timers (every 3 seconds for active, real-time live update!)
             setInterval(fetchTelemetryData, 3000);
             setInterval(loadUsers, 4000);
+            setInterval(pollQRStatus, 4000);
         });
 
         // TABS SELECTOR
@@ -646,6 +791,10 @@
             if (tabId === 'stats') fetchTelemetryData();
             if (tabId === 'logs') fetchTelemetryData();
             if (tabId === 'users') loadUsers();
+            if (tabId === 'system') {
+                loadSystemLogs();
+                loadPluginsList();
+            }
         }
 
         // SHOW POPUP TOAST
@@ -867,6 +1016,22 @@
                 document.getElementById("statMessagesToday").innerText = data.messagesToday;
                 document.getElementById("statResponseTime").innerText = data.avgResponseTime;
                 document.getElementById("statTotalUsers").innerText = data.totalUsers;
+
+                // Live Uptime Display update
+                if (document.getElementById("uptimeDisplay") && data.uptimeSeconds !== undefined) {
+                    const formatDuration = (secs) => {
+                        if (!secs) return "0s";
+                        const h = Math.floor(secs / 3600);
+                        const m = Math.floor((secs % 3600) / 60);
+                        const s = secs % 60;
+                        const parts = [];
+                        if (h > 0) parts.push(`${h}h`);
+                        if (m > 0) parts.push(`${m}m`);
+                        if (s > 0 || parts.length === 0) parts.push(`${s}s`);
+                        return parts.join(" ");
+                    };
+                    document.getElementById("uptimeDisplay").innerText = formatDuration(data.uptimeSeconds);
+                }
 
                 // 3. Activity Graph last 7 days
                 const activityGraph = document.getElementById("activityGraph");
@@ -1386,6 +1551,247 @@
             if (e.target.checked) s.classList.remove("hidden");
             else s.classList.add("hidden");
         });
+
+        // RECONNECT BOT (Generar nuevo QR)
+        async function reconnectBot() {
+            if (!confirm("¿Seguro que deseas reconectar WhatsApp y generar un nuevo código QR? Esto reiniciará la conexión.")) return;
+            try {
+                const res = await fetch("/api/reconnect", { method: "POST" });
+                if (res.ok) {
+                    showToast("Orden de reconexión enviada. El bot se reiniciará en un momento.");
+                } else {
+                    showToast("Error al enviar orden de reconexión", "error");
+                }
+            } catch (err) {
+                showToast("Fallo al enviar orden", "error");
+            }
+        }
+
+        // DOWNLOAD BACKUP
+        function downloadBackup() {
+            window.location.href = "/api/backup/download";
+        }
+
+        // RESTORE BACKUP
+        async function restoreBackup(event) {
+            const file = event.target.files[0];
+            if (!file) return;
+
+            if (!confirm("¿ESTÁS SEGURO? Esto reemplazará COMPLETAMENTE la base de datos actual con los datos del backup. No podrás deshacer esta acción.")) {
+                event.target.value = "";
+                return;
+            }
+
+            try {
+                const content = await file.text();
+                const backupData = JSON.parse(content);
+
+                const res = await fetch("/api/backup/restore", {
+                    method: "POST",
+                    headers: { "Content-Type": "application/json" },
+                    body: JSON.stringify(backupData)
+                });
+
+                if (res.ok) {
+                    showToast("¡Base de datos restaurada correctamente! Recargando la página...");
+                    setTimeout(() => {
+                        window.location.reload();
+                    }, 2000);
+                } else {
+                    const data = await res.json();
+                    showToast(data.error || "Error al restaurar backup", "error");
+                }
+            } catch (err) {
+                showToast("Archivo JSON de backup inválido o corrupto", "error");
+            } finally {
+                event.target.value = "";
+            }
+        }
+
+        // SEND TEST MESSAGE
+        async function sendTestMessage(e) {
+            e.preventDefault();
+            const number = document.getElementById("testMessageNumber").value.trim();
+
+            try {
+                const res = await fetch("/api/test-message", {
+                    method: "POST",
+                    headers: { "Content-Type": "application/json" },
+                    body: JSON.stringify({ number })
+                });
+
+                if (res.ok) {
+                    const data = await res.json();
+                    showToast(`Mensaje de prueba enviado con éxito a ${data.jid}`);
+                    document.getElementById("testMessageNumber").value = "";
+                } else {
+                    const data = await res.json();
+                    showToast(data.error || "Fallo al enviar mensaje de prueba", "error");
+                }
+            } catch (err) {
+                showToast("Fallo de conexión", "error");
+            }
+        }
+
+        // SEND BROADCAST
+        async function sendBroadcast(e) {
+            e.preventDefault();
+            const message = document.getElementById("broadcastMessageText").value.trim();
+
+            if (!confirm("¿Seguro que deseas enviar este mensaje de difusión a TODOS los usuarios no baneados?")) return;
+
+            try {
+                const res = await fetch("/api/broadcast", {
+                    method: "POST",
+                    headers: { "Content-Type": "application/json" },
+                    body: JSON.stringify({ message })
+                });
+
+                if (res.ok) {
+                    const data = await res.json();
+                    showToast(`Difusión iniciada para ${data.count} usuarios en segundo plano.`);
+                    document.getElementById("broadcastMessageText").value = "";
+                } else {
+                    const data = await res.json();
+                    showToast(data.error || "Fallo al iniciar difusión", "error");
+                }
+            } catch (err) {
+                showToast("Fallo de conexión", "error");
+            }
+        }
+
+        // LOAD PLUGINS LIST (WITH TOGGLE)
+        async function loadPluginsList() {
+            try {
+                const res = await fetch("/api/plugins");
+                const list = await res.json();
+                const container = document.getElementById("systemPluginsList");
+                container.innerHTML = "";
+
+                if (list.length === 0) {
+                    container.innerHTML = `<p class="text-xs text-gray-500 italic">No hay plugins encontrados.</p>`;
+                    return;
+                }
+
+                list.forEach(p => {
+                    container.innerHTML += `
+                        <div class="glass-card px-4 py-3 rounded-xl flex items-center justify-between text-xs">
+                            <span class="font-bold ${p.disabled ? 'text-gray-500 line-through' : 'text-amber-400'}">${p.name}</span>
+                            <label class="ios-switch">
+                                <input type="checkbox" ${!p.disabled ? 'checked' : ''} onchange="togglePlugin('${p.name}')">
+                                <span class="ios-slider"></span>
+                            </label>
+                        </div>
+                    `;
+                });
+            } catch (err) {
+                console.error("Error loading plugins list:", err);
+            }
+        }
+
+        async function togglePlugin(name) {
+            try {
+                const res = await fetch("/api/plugins/toggle", {
+                    method: "POST",
+                    headers: { "Content-Type": "application/json" },
+                    body: JSON.stringify({ name })
+                });
+
+                if (res.ok) {
+                    const data = await res.json();
+                    showToast(`Plugin ${name} ${data.disabled ? 'desactivado' : 'activado'} correctamente.`);
+                    loadPluginsList();
+                } else {
+                    showToast("Error al cambiar estado del plugin", "error");
+                }
+            } catch (err) {
+                showToast("Fallo de conexión", "error");
+            }
+        }
+
+        // LOAD SYSTEM LOGS (COLORED BY LEVEL)
+        async function loadSystemLogs() {
+            try {
+                const res = await fetch("/api/system-logs");
+                const logs = await res.json();
+                const container = document.getElementById("systemLogsContainer");
+                container.innerHTML = "";
+
+                if (logs.length === 0) {
+                    container.innerHTML = `<p class="text-gray-500 italic">No hay logs registrados en el sistema.</p>`;
+                    return;
+                }
+
+                logs.forEach(l => {
+                    const timeStr = new Date(l.timestamp).toLocaleString();
+                    let levelColorClass = "text-cyan-400"; // info
+                    if (l.level === "warn") levelColorClass = "text-amber-400";
+                    else if (l.level === "error") levelColorClass = "text-red-500";
+                    else if (l.level === "critical") levelColorClass = "text-red-600 font-bold";
+
+                    container.innerHTML += `
+                        <div class="border-b border-white/5 pb-1">
+                            <span class="text-gray-500">[${timeStr}]</span>
+                            <span class="${levelColorClass} font-bold uppercase">[${l.level}]</span>
+                            <span class="text-gray-300 ml-1">${l.message}</span>
+                        </div>
+                    `;
+                });
+            } catch (err) {
+                console.error("Error loading system logs:", err);
+            }
+        }
+
+        // POLL QR CODE & CONNECTION STATUS (EVERY 4 SECONDS)
+        async function pollQRStatus() {
+            try {
+                const res = await fetch("/api/qr");
+                const data = await res.json();
+
+                const qrContainer = document.getElementById("qrContainer");
+                const qrStatusDot = document.getElementById("qrStatusDot");
+                const qrStatusLabel = document.getElementById("qrStatusLabel");
+                const connectedNumberDisplay = document.getElementById("connectedNumberDisplay");
+
+                // Update number display
+                if (data.connectedNumber) {
+                    connectedNumberDisplay.innerText = `+${data.connectedNumber}`;
+                } else {
+                    connectedNumberDisplay.innerText = "No vinculado";
+                }
+
+                // Update QR image / connected card state
+                if (data.connected) {
+                    qrContainer.innerHTML = `
+                        <div class="flex flex-col items-center justify-center text-center text-green-400">
+                            <i class="fa-solid fa-circle-check text-5xl mb-2"></i>
+                            <span class="text-sm font-bold">WhatsApp Conectado</span>
+                            <span class="text-[10px] text-gray-400 mt-1">Sesión activa y vinculada</span>
+                        </div>
+                    `;
+                    qrStatusDot.className = "w-2 h-2 rounded-full bg-green-500 pulse-dot inline-block";
+                    qrStatusLabel.innerText = "Conectado correctamente";
+                } else if (data.qr) {
+                    qrContainer.innerHTML = `
+                        <img src="${data.qr}" alt="WhatsApp QR Code" class="w-full h-full object-contain p-1 bg-white rounded-xl shadow-inner">
+                    `;
+                    qrStatusDot.className = "w-2 h-2 rounded-full bg-yellow-500 pulse-dot inline-block";
+                    qrStatusLabel.innerText = "QR listo para escanear";
+                } else {
+                    qrContainer.innerHTML = `
+                        <div class="flex flex-col items-center justify-center text-center text-gray-500">
+                            <i class="fa-solid fa-spinner fa-spin text-3xl mb-2"></i>
+                            <span class="text-xs">Esperando generación del QR...</span>
+                            <span class="text-[9px] text-gray-400 mt-1">Asegúrate de que no haya un Pairing Code activo</span>
+                        </div>
+                    `;
+                    qrStatusDot.className = "w-2 h-2 rounded-full bg-orange-500 pulse-dot inline-block";
+                    qrStatusLabel.innerText = "Esperando código QR...";
+                }
+            } catch (err) {
+                console.error("Error polling QR status:", err);
+            }
+        }
     </script>
 </body>
 </html>
