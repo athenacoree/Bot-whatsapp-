@@ -665,4 +665,29 @@
 	} catch (e) {
 		console.error("[ ADMIN PANEL ERROR ] Failed to start admin panel:", e);
 	}
+/** [IMPLEMENTACION 14] Apagado gracioso: guarda la base de datos antes de morir.
+	 *  Importante en Render, que envía SIGTERM en cada redeploy o reinicio manual;
+	 *  sin esto se podían perder escrituras pendientes de la DB. */
+	let shuttingDown = false;
+	const gracefulShutdown = async (signal) => {
+		if (shuttingDown) return;
+		shuttingDown = true;
+		console.log(`[ SHUTDOWN ] Señal ${signal} recibida. Guardando estado antes de salir...`);
+		try {
+			await mydb.write(global.db);
+			console.log("[ SHUTDOWN ] Base de datos guardada correctamente.");
+		} catch (e) {
+			console.error("[ SHUTDOWN ] Error guardando la base de datos:", e.message);
+		}
+		process.exit(0);
+	};
+	process.on("SIGTERM", () => gracefulShutdown("SIGTERM"));
+	process.on("SIGINT", () => gracefulShutdown("SIGINT"));
+
+	if (process.env.SKIP_WA === "true") {
+		console.log("[ MACHINE ] SKIP_WA is true. Skipping WhatsApp connection logic for local development.");
+	} else {
+		connectWA();
+	}
+})();
 
