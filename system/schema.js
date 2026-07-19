@@ -118,6 +118,9 @@ module.exports = (m) => {
 		if (!("cmd_blocked" in setting)) setting.cmd_blocked = [];
 		if (!("pluginDisable" in setting)) setting.pluginDisable = [];
 		if (!("owners" in setting)) setting.owners = process.env.OWNER || [];
+		if (!("autoResponses" in setting)) setting.autoResponses = [];
+		if (!("absenceMode" in setting)) setting.absenceMode = false;
+		if (!("absenceMessage" in setting)) setting.absenceMessage = "Hola, en este momento no me encuentro disponible. Dejaré tu mensaje guardado.";
 		if (!("cover" in setting))
 			setting.cover = "https://files.catbox.moe/xxa4gz.jpg";
 		if (!("link" in setting))
@@ -140,6 +143,9 @@ module.exports = (m) => {
 			cmd_blocked: [],
 			pluginDisable: [],
 			owners: process.env.OWNER || [],
+			autoResponses: [],
+			absenceMode: false,
+			absenceMessage: "Hola, en este momento no me encuentro disponible. Dejaré tu mensaje guardado.",
 			cover: "https://files.catbox.moe/xxa4gz.jpg",
 			link: "https://whatsapp.com/channel/0029VaBB5zLF1YlNMoA6YD0b",
 			msg: "Hi +tag. I am an automated system (WhatsApp Bot) that can help to do something, search and get data / information only through WhatsApp.\n\n◦ *Database* : +db\n◦ *Library* : Baileys\n\nIf you find an error or want to upgrade premium plan contact the owner.",

@@ -332,19 +332,30 @@ async function generateAIResponse(m, userText, conn) {
         history.push({ role: "user", content: userText });
         history.push({ role: "assistant", content: responseText });
 
-        // Record Log of interaction
-        const newLog = {
-            id: Date.now().toString() + "_" + Math.floor(Math.random() * 1000),
-            timestamp: Date.now(),
-            user: m.name || m.sender.split("@")[0],
-            message: userText,
-            type: m.isGroup ? "grupo" : "privado",
-            response: responseText
-        };
-
-        global.db.recentLogs.unshift(newLog);
-        if (global.db.recentLogs.length > 100) {
-            global.db.recentLogs = global.db.recentLogs.slice(0, 100);
+        // Record Log of interaction and calculate responseTime telemetry
+        if (!global.db.recentLogs) global.db.recentLogs = [];
+        let existingLog = global.db.recentLogs.find(l => l.msgId === m.id);
+        if (existingLog) {
+            existingLog.response = responseText;
+            existingLog.responseTime = Date.now() - existingLog.timestamp;
+            existingLog.level = "info";
+        } else {
+            const newLog = {
+                id: Date.now().toString() + "_" + Math.floor(Math.random() * 1000),
+                msgId: m.id || "",
+                timestamp: Date.now(),
+                user: m.name || m.sender.split("@")[0],
+                jid: m.sender,
+                message: userText,
+                type: m.isGroup ? "grupo" : "privado",
+                response: responseText,
+                level: "info",
+                responseTime: 1500 // fallback default
+            };
+            global.db.recentLogs.unshift(newLog);
+            if (global.db.recentLogs.length > 100) {
+                global.db.recentLogs = global.db.recentLogs.slice(0, 100);
+            }
         }
 
         // Increment user interaction counter

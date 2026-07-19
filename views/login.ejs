@@ -1,0 +1,113 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>YOSHIDA - Iniciar Sesión</title>
+    <!-- Tailwind CSS for modern foundation -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    <style>
+        @import url('https://fonts.googleapis.com/css2?family=SF+Pro+Display:wght@300;400;500;600;700&display=swap');
+
+        body {
+            font-family: 'SF Pro Display', -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+            background: linear-gradient(135deg, #090d16, #0f172a, #1e1b4b, #2e1065);
+            background-attachment: fixed;
+            min-height: 100vh;
+        }
+
+        /* Apple Glassmorphism effect */
+        .glass-container {
+            background: rgba(255, 255, 255, 0.03);
+            backdrop-filter: blur(25px);
+            -webkit-backdrop-filter: blur(25px);
+            border: 1px solid rgba(255, 255, 255, 0.08);
+            box-shadow: 0 20px 50px rgba(0, 0, 0, 0.5);
+            animation: fadeIn 0.8s cubic-bezier(0.16, 1, 0.3, 1);
+        }
+
+        @keyframes fadeIn {
+            from { opacity: 0; transform: scale(0.95) translateY(10px); }
+            to { opacity: 1; transform: scale(1) translateY(0); }
+        }
+
+        /* Subtle glowing button */
+        .btn-glow:hover {
+            box-shadow: 0 0 25px rgba(236, 72, 153, 0.4);
+            transform: translateY(-1px);
+        }
+        .btn-glow:active {
+            transform: translateY(1px);
+        }
+    </style>
+</head>
+<body class="text-white antialiased flex items-center justify-center p-4">
+
+    <!-- LOGIN CARD CONTAINER -->
+    <div class="glass-container w-full max-w-md p-8 rounded-[30px] text-center space-y-6">
+
+        <!-- Apple Logo / Icon Header -->
+        <div class="space-y-2">
+            <div class="mx-auto w-16 h-16 rounded-full bg-gradient-to-tr from-pink-500 via-purple-600 to-indigo-600 flex items-center justify-center shadow-2xl shadow-pink-500/20">
+                <i class="fa-solid fa-lock text-2xl text-white"></i>
+            </div>
+            <h1 class="text-2xl font-bold tracking-tight bg-clip-text text-transparent bg-gradient-to-r from-pink-400 via-purple-300 to-indigo-300">
+                Yoshida Bot Admin
+            </h1>
+            <p class="text-xs text-gray-400">Introduce la contraseña del panel para continuar</p>
+        </div>
+
+        <!-- LOGIN FORM -->
+        <form id="loginForm" class="space-y-4" onsubmit="handleLogin(event)">
+            <div class="relative">
+                <span class="absolute inset-y-0 left-0 flex items-center pl-4 text-gray-400">
+                    <i class="fa-solid fa-key"></i>
+                </span>
+                <input type="password" id="password" required placeholder="Contraseña de administrador"
+                       class="w-full pl-11 pr-4 py-4 rounded-2xl bg-black/40 border border-white/10 text-white placeholder-gray-500 text-sm focus:border-pink-500 outline-none transition-all duration-300">
+            </div>
+
+            <div id="errorMessage" class="text-xs text-red-400 font-medium hidden"></div>
+
+            <button type="submit" class="btn-glow w-full py-4 bg-gradient-to-r from-pink-500 via-purple-500 to-indigo-500 rounded-2xl font-bold text-sm tracking-wide shadow-lg shadow-pink-500/10 transition-all duration-300 flex items-center justify-center gap-2">
+                <span>Acceder al Panel</span>
+                <i class="fa-solid fa-arrow-right"></i>
+            </button>
+        </form>
+
+        <p class="text-[10px] text-gray-500 uppercase tracking-widest font-semibold pt-4">
+            Apple Glassmorphic Interface
+        </p>
+    </div>
+
+    <!-- MAIN INTERACTIVE SCRIPT -->
+    <script>
+        async function handleLogin(e) {
+            e.preventDefault();
+            const password = document.getElementById("password").value;
+            const errorDiv = document.getElementById("errorMessage");
+            errorDiv.classList.add("hidden");
+
+            try {
+                const res = await fetch("/login", {
+                    method: "POST",
+                    headers: { "Content-Type": "application/json" },
+                    body: JSON.stringify({ password })
+                });
+
+                if (res.ok) {
+                    window.location.href = "/";
+                } else {
+                    const data = await res.json();
+                    errorDiv.innerText = data.error || "Contraseña incorrecta";
+                    errorDiv.classList.remove("hidden");
+                }
+            } catch (err) {
+                errorDiv.innerText = "Error al conectar con el servidor";
+                errorDiv.classList.remove("hidden");
+            }
+        }
+    </script>
+</body>
+</html>

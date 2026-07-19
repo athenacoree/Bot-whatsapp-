@@ -554,5 +554,9 @@
 		console.error("[ ADMIN PANEL ERROR ] Failed to start admin panel:", e);
 	}
 
-	connectWA();
+	if (process.env.SKIP_WA === "true") {
+		console.log("[ MACHINE ] SKIP_WA is true. Skipping WhatsApp connection logic for local development.");
+	} else {
+		connectWA();
+	}
 })();
