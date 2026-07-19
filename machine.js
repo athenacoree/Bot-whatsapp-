@@ -257,7 +257,8 @@
 		const sessionConfig = await getSessionState();
 		const { state, saveCreds, deleteSession } = sessionConfig;
 
-		const { version, isLatest } = await baileys.fetchLatestBaileysVersion();
+		const version = [2, 3000, 1043430842];
+		const isLatest = true;
 		console.log(
 			`-- Using WA v${version.join(".")}, isLatest: ${isLatest} --`
 		);
@@ -543,7 +544,7 @@
 									action === "add"
 										? (
 												group.sWelcome ||
-												`Welcome @user (ʘᴗʘ✿)\n${Func.readMore()}\n@desc`
+												`Welcome @user (ʘᴗʘ���)\n${Func.readMore()}\n@desc`
 											)
 												.replace(
 													"@subject",
@@ -690,4 +691,3 @@
 		connectWA();
 	}
 })();
-
