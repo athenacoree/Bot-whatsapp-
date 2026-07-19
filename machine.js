@@ -181,10 +181,16 @@
 
 		if (process.env.PAIRING_STATE && !conn.authState.creds.registered) {
 			try {
-				const phoneNumber = process.env.PAIRING_NUMBER.replace(
-					/[^0-9]/g,
-					""
-				);
+				const rawNumber = process.env.PAIRING_NUMBER;
+				if (!rawNumber) {
+					console.warn("[SESSION] PAIRING_STATE is true, but PAIRING_NUMBER is empty or not defined. Please set PAIRING_NUMBER in your environment variables.");
+					process.exit(0);
+				}
+				const phoneNumber = rawNumber.replace(/[^0-9]/g, "");
+				if (!phoneNumber) {
+					console.warn("[SESSION] PAIRING_NUMBER is invalid. Please set PAIRING_NUMBER to a valid phone number (e.g., 5491122334455).");
+					process.exit(0);
+				}
 				await baileys.delay(3000);
 				const code = await conn.requestPairingCode(
 					phoneNumber,
@@ -195,7 +201,7 @@
 				);
 			} catch (e) {
 				console.error("[+] Gagal mendapatkan kode pairing", e);
-				process.exit();
+				process.exit(0);
 			}
 		}
 
