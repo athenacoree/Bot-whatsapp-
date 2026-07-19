@@ -145,4 +145,34 @@ module.exports = (m) => {
 			msg: "Hi +tag. I am an automated system (WhatsApp Bot) that can help to do something, search and get data / information only through WhatsApp.\n\n◦ *Database* : +db\n◦ *Library* : Baileys\n\nIf you find an error or want to upgrade premium plan contact the owner.",
 		};
 	}
+
+	if (!global.db.aiConfig || typeof global.db.aiConfig !== "object") {
+		global.db.aiConfig = {
+			personality: "Eres Yoshida, una asistente sarcástica, divertida y amigable.",
+			tone: "amigable",
+			language: "es",
+			maxLength: 1000,
+			creativity: 0.7,
+			provider: "gemini",
+			apiKey: "",
+			model: "gemini-2.0-flash",
+			mcpEnabled: false,
+			mcpServers: []
+		};
+	}
+
+	if (!global.db.aiRules || !Array.isArray(global.db.aiRules)) {
+		global.db.aiRules = [
+			{ id: "1", text: "No des información personal", priority: "alta" },
+			{ id: "2", text: "Siempre responde en español", priority: "alta" }
+		];
+	}
+
+	if (!global.db.proactiveContacts || !Array.isArray(global.db.proactiveContacts)) {
+		global.db.proactiveContacts = [];
+	}
+
+	if (!global.db.recentLogs || !Array.isArray(global.db.recentLogs)) {
+		global.db.recentLogs = [];
+	}
 };

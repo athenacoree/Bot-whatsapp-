@@ -14,25 +14,40 @@
 	const { usePostgreSQLAuthState } = require("postgres-baileys");
 
 	/** postgreSQL cfg */
-	const postgreSQLConfig = {
+	let postgreSQLConfig = {
 		user: process.env.POSTGRES_USER,
 		password: process.env.POSTGRES_PASSWORD,
 		host: process.env.POSTGRES_HOST,
-		port: parseInt(process.env.POSTGRES_PORT),
+		port: parseInt(process.env.POSTGRES_PORT || "5432"),
 		database: process.env.POSTGRES_DATABASE,
-		/* ssl: {
-		 *	rejectUnauthorized: true,
-		 *	ca: process.env.POSTGRES_SSL.replace(/"""/g, ""),
-		 * },
-		 */
 	};
 
+	if (process.env.DATABASE_URL) {
+		try {
+			const { URL } = require("url");
+			const parsed = new URL(process.env.DATABASE_URL);
+			postgreSQLConfig = {
+				user: parsed.username,
+				password: decodeURIComponent(parsed.password || ""),
+				host: parsed.hostname,
+				port: parseInt(parsed.port || "5432"),
+				database: parsed.pathname.replace(/^\//, ""),
+				ssl: {
+					rejectUnauthorized: false,
+				},
+			};
+			console.log("[ DATABASE ] Loaded connection config from DATABASE_URL");
+		} catch (e) {
+			console.error("[ DATABASE ] Failed to parse DATABASE_URL:", e);
+		}
+	}
+
+	const dbState = process.env.DATABASE_STATE || (process.env.DATABASE_URL ? "postgres" : "json");
+
 	/** database options */
-	const mydb = /json/i.test(process.env.DATABASE_STATE)
+	const mydb = /json/i.test(dbState)
 		? new Local()
-		: /postgres/i.test(process.env.DATABASE_STATE)
-			? new PostgreSQL(postgreSQLConfig, "db_bot")
-			: process.exit();
+		: new PostgreSQL(postgreSQLConfig, "db_bot");
 
 	/** database init */
 	global.db = await mydb.read();
@@ -44,11 +59,47 @@
 			setting: {},
 			stats: {},
 		};
-		await mydb.write(global.db);
-		console.log("[ DATABASE ] Database initialized!");
-	} else {
-		console.log("[ DATABASE ] Database loaded.");
 	}
+
+	// Ensure all standard and admin config structures are fully initialized in-memory on start
+	if (!global.db.users) global.db.users = {};
+	if (!global.db.groups) global.db.groups = {};
+	if (!global.db.chats) global.db.chats = {};
+	if (!global.db.setting) global.db.setting = {};
+	if (!global.db.stats) global.db.stats = {};
+
+	if (!global.db.aiConfig || typeof global.db.aiConfig !== "object") {
+		global.db.aiConfig = {
+			personality: "Eres Yoshida, una asistente sarcástica, divertida y amigable.",
+			tone: "amigable",
+			language: "es",
+			maxLength: 1000,
+			creativity: 0.7,
+			provider: "gemini",
+			apiKey: "",
+			model: "gemini-2.0-flash",
+			mcpEnabled: false,
+			mcpServers: []
+		};
+	}
+
+	if (!global.db.aiRules || !Array.isArray(global.db.aiRules)) {
+		global.db.aiRules = [
+			{ id: "1", text: "No des información personal", priority: "alta" },
+			{ id: "2", text: "Siempre responde en español", priority: "alta" }
+		];
+	}
+
+	if (!global.db.proactiveContacts || !Array.isArray(global.db.proactiveContacts)) {
+		global.db.proactiveContacts = [];
+	}
+
+	if (!global.db.recentLogs || !Array.isArray(global.db.recentLogs)) {
+		global.db.recentLogs = [];
+	}
+
+	await mydb.write(global.db);
+	console.log("[ DATABASE ] Database fully initialized and loaded.");
 
 	const logger = await pino({
 		timestamp: () => `,"time":"${new Date().toJSON()}"`,
@@ -143,6 +194,12 @@
 
 		const groupCache = new NodeCache({ stdTTL: 5 * 60, useClones: false });
 
+		const pairingState = (global.db.setting.pairingState !== undefined)
+			? global.db.setting.pairingState
+			: (process.env.PAIRING_STATE === "true" || process.env.PAIRING_STATE === true);
+
+		const pairingNumber = global.db.setting.pairingNumber || process.env.PAIRING_NUMBER;
+
 		const conn = await baileys.makeWASocket({
 			version,
 			logger,
@@ -150,7 +207,7 @@
 				creds: state.creds,
 				keys: baileys.makeCacheableSignalKeyStore(state.keys, logger),
 			},
-			printQRInTerminal: !process.env.PAIRING_STATE,
+			printQRInTerminal: !pairingState,
 			browser: baileys.Browsers.ubuntu("Edge"),
 			markOnlineOnConnect: false,
 			generateHighQualityLinkPreview: true,
@@ -173,15 +230,17 @@
 			},
 		});
 
+		global.conn = conn; // Keep active connection globally accessible for the admin panel!
+
 		store.bind(conn.ev);
 		await Client({ conn, store });
 
 		if (conn.user && conn.user.id)
 			conn.user.jid = await conn.decodeJid(conn.user.id);
 
-		if (process.env.PAIRING_STATE && !conn.authState.creds.registered) {
+		if (pairingState && !conn.authState.creds.registered) {
 			try {
-				const rawNumber = process.env.PAIRING_NUMBER;
+				const rawNumber = pairingNumber;
 				if (!rawNumber) {
 					console.warn("[SESSION] PAIRING_STATE is true, but PAIRING_NUMBER is empty or not defined. Please set PAIRING_NUMBER in your environment variables.");
 					process.exit(0);
@@ -196,8 +255,10 @@
 					phoneNumber,
 					"YOSHIDA1"
 				);
+				const formattedCode = code?.match(/.{1,4}/g)?.join("-") || code;
+				global.pairingCode = formattedCode;
 				console.log(
-					`Pairing code: \x1b[32m${code?.match(/.{1,4}/g)?.join("-") || code}\x1b[39m`
+					`Pairing code: \x1b[32m${formattedCode}\x1b[39m`
 				);
 			} catch (e) {
 				console.error("[+] Gagal mendapatkan kode pairing", e);
@@ -484,6 +545,14 @@
 		process.on("uncaughtException", console.error);
 		process.on("unhandledRejection", console.error);
 	};
+
+	// Start Web Admin Panel Express Server
+	try {
+		const startAdminPanel = require("@system/adminPanel");
+		startAdminPanel(null, mydb);
+	} catch (e) {
+		console.error("[ ADMIN PANEL ERROR ] Failed to start admin panel:", e);
+	}
 
 	connectWA();
 })();
