@@ -1,5 +1,6 @@
 const { spawn } = require("child_process");
 const path = require("path");
+const fs = require("fs");
 
 function start() {
 	let args = [path.join(__dirname, "machine.js"), ...process.argv.slice(2)];
@@ -15,8 +16,8 @@ function start() {
 		})
 		.on("exit", (_, code) => {
 			if (code !== 0) start();
-			watchFile(args[0], () => {
-				unwatchFile(args[0]);
+			fs.watchFile(args[0], () => {
+				fs.unwatchFile(args[0]);
 				start();
 			});
 		});
