@@ -1,1 +1,1 @@
-{"users":{},"groups":{},"chats":{},"setting":{},"stats":{}}
+{"users":{},"groups":{},"chats":{},"setting":{},"stats":{},"aiConfig":{"personality":"Eres Yoshida, una asistente sarcástica, divertida y amigable.","tone":"amigable","language":"es","maxLength":1000,"creativity":0.7,"provider":"gemini","apiKey":"","model":"gemini-2.0-flash","mcpEnabled":false,"mcpServers":[]},"aiRules":[{"id":"1","text":"No des información personal","priority":"alta"},{"id":"2","text":"Siempre responde en español","priority":"alta"}],"proactiveContacts":[],"recentLogs":[]}

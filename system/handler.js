@@ -25,6 +25,38 @@ module.exports = async (conn, m, store) => {
 			await conn.readMessages([m.key]);
 		}
 		if (m.isBot) return;
+
+		// Absence Mode Check
+		if (setting.absenceMode && !m.fromMe && !m.isGroup) {
+			const absenceMsg = setting.absenceMessage || "Hola, en este momento no me encuentro disponible. Dejaré tu mensaje guardado.";
+			await m.reply(absenceMsg);
+			if (!global.db.recentLogs) global.db.recentLogs = [];
+			let existingLog = global.db.recentLogs.find(l => l.msgId === m.id);
+			if (existingLog) {
+				existingLog.response = absenceMsg;
+				existingLog.responseTime = 100;
+			}
+			return;
+		}
+
+		// Keyword-based Auto-Responses Check
+		if (setting.autoResponses && Array.isArray(setting.autoResponses) && !m.fromMe) {
+			const cleanBody = (m.body || "").toLowerCase().trim();
+			if (cleanBody) {
+				const matched = setting.autoResponses.find(r => cleanBody.includes(r.keyword.toLowerCase().trim()));
+				if (matched) {
+					await m.reply(matched.response);
+					if (!global.db.recentLogs) global.db.recentLogs = [];
+					let existingLog = global.db.recentLogs.find(l => l.msgId === m.id);
+					if (existingLog) {
+						existingLog.response = matched.response;
+						existingLog.responseTime = 100;
+					}
+					return;
+				}
+			}
+		}
+
 		if (setting.debug_mode && !m.fromMe && isOwner)
 			await m.reply(Func.jsonFormat(m));
 		if (
@@ -87,6 +119,32 @@ module.exports = async (conn, m, store) => {
 		if (m.isGroup) groupSet.activity = new Date() * 1;
 		if (users) {
 			users.lastseen = new Date() * 1;
+			users.hit = (users.hit || 0) + 1;
+			if (m.name) users.name = m.name;
+		}
+
+		// Log all incoming messages for real-time monitoring
+		if (m.message && !m.fromMe) {
+			const msgText = m.body || m.type || "";
+			if (!global.db.recentLogs) global.db.recentLogs = [];
+			let existingLog = global.db.recentLogs.find(l => l.msgId === m.id);
+			if (!existingLog) {
+				const newLog = {
+					id: Date.now().toString() + "_" + Math.floor(Math.random() * 1000),
+					msgId: m.id,
+					timestamp: Date.now(),
+					user: m.name || m.sender.split("@")[0],
+					jid: m.sender,
+					message: msgText,
+					type: m.isGroup ? "grupo" : "privado",
+					response: "",
+					level: "info"
+				};
+				global.db.recentLogs.unshift(newLog);
+				if (global.db.recentLogs.length > 100) {
+					global.db.recentLogs = global.db.recentLogs.slice(0, 100);
+				}
+			}
 		}
 		if (chats) {
 			chats.chat += 1;
