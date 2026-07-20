@@ -26,6 +26,5 @@ node_modules
 session
 tmp
 database.*
-package-lock.*
 yarn.lock
 goorm.manifest

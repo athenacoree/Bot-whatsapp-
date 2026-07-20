@@ -721,6 +721,9 @@
                             <button type="button" onclick="restartBot()" class="w-full sm:w-auto px-8 py-3.5 bg-red-500/10 hover:bg-red-500/20 text-red-600 border border-red-500/20 rounded-2xl font-bold flex items-center justify-center gap-2 transition-all">
                                 <i class="fa-solid fa-power-off"></i> Reiniciar Bot
                             </button>
+                            <button type="button" onclick="cleanSession()" class="w-full sm:w-auto px-8 py-3.5 bg-red-600 hover:bg-red-700 text-white rounded-2xl font-bold flex items-center justify-center gap-2 transition-all">
+                                <i class="fa-solid fa-trash-can"></i> Borrar Sesión WA
+                            </button>
                         </div>
                     </form>
                 </div>
@@ -917,6 +920,22 @@
                 }
             } catch (e) {
                 showToast("Comando de reinicio ejecutado.");
+            }
+        }
+
+        // CLEAN SESSION COMMAND
+        async function cleanSession() {
+            if (!confirm("¿Seguro de que deseas borrar la sesión de WhatsApp? Esto eliminará de forma limpia las credenciales guardadas (Postgres o Local) y reiniciará el bot. Deberás volver a vincular.")) return;
+            try {
+                const res = await fetch("/api/clean-session", { method: "POST" });
+                const data = await res.json();
+                if (res.ok && data.success) {
+                    showToast(data.message || "Sesión eliminada con éxito. Reiniciando...");
+                } else {
+                    showToast(data.error || "Ocurrió un error al intentar eliminar la sesión.", "error");
+                }
+            } catch (e) {
+                showToast("Error de red o conexión al servidor.", "error");
             }
         }
 
