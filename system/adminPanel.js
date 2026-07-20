@@ -652,6 +652,260 @@ function startAdminPanel(conn, mydb) {
         }
     });
 
+    // GET /api/session/export
+    app.get("/api/session/export", requireAuth, async (req, res) => {
+        try {
+            if (!global.conn || !global.conn.authState || !global.conn.authState.creds || global.conn.authState.creds.registered !== true) {
+                return res.status(400).json({ error: "La sesión no está activa o registrada. No se puede exportar." });
+            }
+
+            const sessionType = process.env.SESSION_TYPE || "local";
+            const sessionName = process.env.SESSION_NAME || "session";
+
+            if (sessionType.toLowerCase() === "postgresql" || sessionType.toLowerCase() === "postgres") {
+                // Read from postgres auth_data table
+                let postgreSQLConfig = {
+                    user: process.env.POSTGRES_USER,
+                    password: process.env.POSTGRES_PASSWORD,
+                    host: process.env.POSTGRES_HOST,
+                    port: parseInt(process.env.POSTGRES_PORT || "5432"),
+                    database: process.env.POSTGRES_DATABASE,
+                };
+
+                if (process.env.DATABASE_URL) {
+                    try {
+                        const { URL } = require("url");
+                        const parsed = new URL(process.env.DATABASE_URL);
+                        postgreSQLConfig = {
+                            user: parsed.username,
+                            password: decodeURIComponent(parsed.password || ""),
+                            host: parsed.hostname,
+                            port: parseInt(parsed.port || "5432"),
+                            database: parsed.pathname.replace(/^\//, ""),
+                            ssl: {
+                                rejectUnauthorized: false,
+                            },
+                        };
+                    } catch (e) {
+                        console.error("[ DATABASE ] Failed to parse DATABASE_URL inside export:", e);
+                    }
+                }
+
+                const { Pool } = require("pg");
+                const pool = new Pool(postgreSQLConfig);
+                try {
+                    const result = await pool.query('SELECT session_key, data FROM auth_data WHERE session_key LIKE $1', [`${sessionName}:%`]);
+                    const backupData = {
+                        type: "postgresql",
+                        sessionName,
+                        rows: result.rows
+                    };
+                    res.setHeader("Content-Type", "application/json");
+                    res.setHeader("Content-Disposition", `attachment; filename=yoshida_session_postgres_${sessionName}.json`);
+                    return res.send(JSON.stringify(backupData, null, 4));
+                } catch (dbErr) {
+                    console.error("[ SESSION ] Error exporting Postgres session:", dbErr);
+                    return res.status(500).json({ error: "Error de base de datos al exportar: " + dbErr.message });
+                } finally {
+                    await pool.end();
+                }
+            } else {
+                // Read local directory files
+                const fs = require("node:fs");
+                const sessionPath = path.join(process.cwd(), sessionName);
+                if (!fs.existsSync(sessionPath)) {
+                    return res.status(404).json({ error: "No se encontró el directorio de sesión local." });
+                }
+
+                const files = fs.readdirSync(sessionPath);
+                const fileData = {};
+                for (const file of files) {
+                    const filePath = path.join(sessionPath, file);
+                    const stats = fs.statSync(filePath);
+                    if (stats.isFile()) {
+                        fileData[file] = fs.readFileSync(filePath, "utf-8");
+                    }
+                }
+
+                const backupData = {
+                    type: "local",
+                    sessionName,
+                    files: fileData
+                };
+
+                res.setHeader("Content-Type", "application/json");
+                res.setHeader("Content-Disposition", `attachment; filename=yoshida_session_local_${sessionName}.json`);
+                return res.send(JSON.stringify(backupData, null, 4));
+            }
+        } catch (e) {
+            console.error("[ EXPORT ] Error exporting session:", e);
+            res.status(500).json({ error: e.message });
+        }
+    });
+
+    // POST /api/session/import
+    app.post("/api/session/import", requireAuth, async (req, res) => {
+        try {
+            // Let's use a standard express middleware approach or a custom multipart parser to handle uploaded file,
+            // or simply accept JSON directly in the body! If the front-end sends the backup JSON data in the body
+            // as JSON content, we don't need any complex file upload parser and it's extremely robust.
+            // Let's support BOTH: if req.body is already a backup object (because the frontend read the file on the client side
+            // and sent it via POST as application/json), or if we need to parse it. Reading on the client side and sending
+            // as JSON is extremely elegant, avoids installing any extra npm packages (like multer or express-fileupload) which might introduce version mismatches,
+            // and is completely safe and robust.
+            const backup = req.body;
+            if (!backup || typeof backup !== "object") {
+                return res.status(400).json({ error: "Datos de importación inválidos o vacíos." });
+            }
+
+            // Validate structure
+            if (backup.type === "postgresql") {
+                if (!Array.isArray(backup.rows)) {
+                    return res.status(400).json({ error: "Formato incorrecto para respaldo de PostgreSQL. Falta la propiedad 'rows'." });
+                }
+            } else if (backup.type === "local") {
+                if (!backup.files || typeof backup.files !== "object") {
+                    return res.status(400).json({ error: "Formato incorrecto para respaldo Local. Falta la propiedad 'files'." });
+                }
+            } else {
+                return res.status(400).json({ error: "Tipo de respaldo desconocido o ausente en el archivo JSON." });
+            }
+
+            const sessionType = process.env.SESSION_TYPE || "local";
+            const sessionName = process.env.SESSION_NAME || "session";
+
+            if (sessionType.toLowerCase() === "postgresql" || sessionType.toLowerCase() === "postgres") {
+                // If importing into postgres
+                let postgreSQLConfig = {
+                    user: process.env.POSTGRES_USER,
+                    password: process.env.POSTGRES_PASSWORD,
+                    host: process.env.POSTGRES_HOST,
+                    port: parseInt(process.env.POSTGRES_PORT || "5432"),
+                    database: process.env.POSTGRES_DATABASE,
+                };
+
+                if (process.env.DATABASE_URL) {
+                    try {
+                        const { URL } = require("url");
+                        const parsed = new URL(process.env.DATABASE_URL);
+                        postgreSQLConfig = {
+                            user: parsed.username,
+                            password: decodeURIComponent(parsed.password || ""),
+                            host: parsed.hostname,
+                            port: parseInt(parsed.port || "5432"),
+                            database: parsed.pathname.replace(/^\//, ""),
+                            ssl: {
+                                rejectUnauthorized: false,
+                            },
+                        };
+                    } catch (e) {
+                        console.error("[ DATABASE ] Failed to parse DATABASE_URL inside import:", e);
+                    }
+                }
+
+                const { Pool } = require("pg");
+                const pool = new Pool(postgreSQLConfig);
+                try {
+                    // First wipe current session rows
+                    await pool.query('DELETE FROM auth_data WHERE session_key LIKE $1', [`${sessionName}:%`]);
+
+                    // Insert rows
+                    if (backup.type === "postgresql") {
+                        // Directly insert rows from backup
+                        for (const row of backup.rows) {
+                            await pool.query('INSERT INTO auth_data (session_key, data) VALUES ($1, $2) ON CONFLICT (session_key) DO UPDATE SET data = EXCLUDED.data', [row.session_key, row.data]);
+                        }
+                    } else {
+                        // Convert local files object to postgres rows!
+                        // This allows cross-type restore (very powerful!)
+                        for (const [filename, content] of Object.entries(backup.files)) {
+                            // Map filename to postgres key
+                            // Local filenames are e.g. "creds.json" or "pre-key-1.json"
+                            // Postgres keys are "auth_creds", "pre-key-1", etc.
+                            let key = filename.replace(/\.json$/, "");
+                            if (key === "creds") key = "auth_creds";
+                            const fullKey = `${sessionName}:${key}`;
+                            await pool.query('INSERT INTO auth_data (session_key, data) VALUES ($1, $2) ON CONFLICT (session_key) DO UPDATE SET data = EXCLUDED.data', [fullKey, content]);
+                        }
+                    }
+                    console.log("[ SESSION ] Postgres session imported and written successfully");
+                } catch (dbErr) {
+                    console.error("[ SESSION ] Error importing Postgres session:", dbErr);
+                    return res.status(500).json({ error: "Error de base de datos al importar: " + dbErr.message });
+                } finally {
+                    await pool.end();
+                }
+            } else {
+                // Local session writing
+                const fs = require("node:fs");
+                const sessionPath = path.join(process.cwd(), sessionName);
+                if (!fs.existsSync(sessionPath)) {
+                    fs.mkdirSync(sessionPath, { recursive: true });
+                } else {
+                    // Clear existing files in directory to avoid conflict
+                    const oldFiles = fs.readdirSync(sessionPath);
+                    for (const file of oldFiles) {
+                        fs.unlinkSync(path.join(sessionPath, file));
+                    }
+                }
+
+                if (backup.type === "local") {
+                    for (const [file, content] of Object.entries(backup.files)) {
+                        fs.writeFileSync(path.join(sessionPath, file), content, "utf-8");
+                    }
+                } else {
+                    // Convert postgres rows to local files!
+                    // This allows cross-type restore!
+                    for (const row of backup.rows) {
+                        // Key starts with sessionName:
+                        const keySuffix = row.session_key.substring(sessionName.length + 1);
+                        let filename = `${keySuffix}.json`;
+                        if (keySuffix === "auth_creds") filename = "creds.json";
+                        fs.writeFileSync(path.join(sessionPath, filename), row.data, "utf-8");
+                    }
+                }
+                console.log("[ SESSION ] Local session imported and written successfully");
+            }
+
+            res.json({ success: true, message: "Sesión restaurada correctamente. Reiniciando la conexión de WhatsApp..." });
+
+            setTimeout(() => {
+                console.log("[ ADMIN PANEL ] Session import completed. Restarting bot...");
+                if (process.send) {
+                    process.send("reset");
+                } else {
+                    process.exit(1);
+                }
+            }, 1500);
+
+        } catch (e) {
+            console.error("[ IMPORT ] Error importing session:", e);
+            res.status(500).json({ error: e.message });
+        }
+    });
+
+    // POST /api/request-pairing-code
+    app.post("/api/request-pairing-code", requireAuth, async (req, res) => {
+        try {
+            global.db.setting.pairingCodeRequested = true;
+            await mydb.write(global.db);
+
+            res.json({ success: true, message: "Solicitud de código de vinculación registrada. Reiniciando bot..." });
+
+            setTimeout(() => {
+                console.log("[ ADMIN PANEL ] Pairing code requested, restarting process...");
+                if (process.send) {
+                    process.send("reset");
+                } else {
+                    process.exit(1);
+                }
+            }, 1000);
+        } catch (e) {
+            console.error("[ PAIRING ] Error requesting pairing code:", e);
+            res.status(500).json({ error: e.message });
+        }
+    });
+
     // GET /api/qr
     app.get("/api/qr", requireAuth, (req, res) => {
         try {

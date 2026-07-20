@@ -303,9 +303,14 @@
                                 <p class="text-xs font-semibold text-indigo-950/60 uppercase tracking-wider mb-1">Tiempo de Actividad (Uptime)</p>
                                 <p id="uptimeDisplay" class="text-lg font-bold text-indigo-950">0s</p>
                             </div>
-                            <button type="button" onclick="reconnectBot()" class="w-full sm:w-auto px-6 py-3 bg-gradient-to-r from-purple-600 to-indigo-600 text-white font-bold rounded-2xl text-sm transition-all flex items-center justify-center gap-2 shadow-lg shadow-purple-500/10">
-                                <i class="fa-solid fa-rotate"></i> Forzar Reconexión / QR
-                            </button>
+                            <div class="flex flex-col sm:flex-row gap-2">
+                                <button type="button" onclick="reconnectBot()" class="w-full sm:w-auto px-4 py-2.5 bg-gradient-to-r from-purple-600 to-indigo-600 text-white font-bold rounded-xl text-xs transition-all flex items-center justify-center gap-2 shadow-md">
+                                    <i class="fa-solid fa-rotate"></i> QR
+                                </button>
+                                <button type="button" onclick="requestPairingCode()" class="w-full sm:w-auto px-4 py-2.5 bg-gradient-to-r from-indigo-600 to-violet-600 text-white font-bold rounded-xl text-xs transition-all flex items-center justify-center gap-2 shadow-md">
+                                    <i class="fa-solid fa-key"></i> Generar Pairing Code
+                                </button>
+                            </div>
                         </div>
                         <div class="flex flex-col items-center justify-center p-4 rounded-2xl bg-white/40 border border-purple-200/50 min-h-[220px]">
                             <div id="qrContainer" class="w-48 h-48 flex items-center justify-center text-center">
@@ -743,6 +748,24 @@
                             <button onclick="document.getElementById('backupFileInput').click()" class="w-full py-3 bg-indigo-50 hover:bg-indigo-100 border border-indigo-200/50 text-indigo-700 font-bold rounded-xl text-xs transition-all flex items-center justify-center gap-2 shadow-sm">
                                 <i class="fa-solid fa-upload"></i> Seleccionar y Restaurar Backup
                             </button>
+                        </div>
+
+                        <!-- WhatsApp Active Session Backup Section -->
+                        <div class="border-t border-purple-200/50 pt-4 space-y-3">
+                            <h3 class="text-xs font-bold text-indigo-950 uppercase tracking-wide">Respaldo de Sesión de WhatsApp</h3>
+                            <p class="text-[10px] text-red-600 font-semibold leading-relaxed flex items-start gap-1">
+                                <i class="fa-solid fa-triangle-exclamation text-xs mt-0.5"></i>
+                                <span>Advertencia: Este archivo da acceso completo a tu sesión de WhatsApp. No lo compartas con nadie.</span>
+                            </p>
+                            <div class="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                                <button onclick="downloadSessionBackup()" class="py-2 px-3 bg-emerald-50 hover:bg-emerald-100 border border-emerald-200/50 text-emerald-700 font-bold rounded-xl text-[11px] transition-all flex items-center justify-center gap-1.5 shadow-sm">
+                                    <i class="fa-solid fa-file-export"></i> Descargar Respaldo Sesión
+                                </button>
+                                <input type="file" id="sessionBackupInput" accept=".json" class="hidden" onchange="importSessionBackup(event)">
+                                <button onclick="document.getElementById('sessionBackupInput').click()" class="py-2 px-3 bg-violet-50 hover:bg-violet-100 border border-violet-200/50 text-violet-700 font-bold rounded-xl text-[11px] transition-all flex items-center justify-center gap-1.5 shadow-sm">
+                                    <i class="fa-solid fa-file-import"></i> Restaurar Sesión
+                                </button>
+                            </div>
                         </div>
                     </div>
 
@@ -1729,6 +1752,91 @@
                 }
             } catch (err) {
                 showToast("Fallo al enviar orden", "error");
+            }
+        }
+
+        // REQUEST PAIRING CODE
+        async function requestPairingCode() {
+            if (!confirm("¿Deseas solicitar un nuevo código de vinculación (Pairing Code)? El bot se reiniciará para generarlo.")) return;
+            try {
+                const res = await fetch("/api/request-pairing-code", { method: "POST" });
+                const data = await res.json();
+                if (res.ok && data.success) {
+                    showToast(data.message || "Solicitud registrada. Reiniciando bot...");
+                } else {
+                    showToast(data.error || "Error al solicitar código de vinculación", "error");
+                }
+            } catch (err) {
+                showToast("Fallo al enviar orden", "error");
+            }
+        }
+
+        // DOWNLOAD ACTIVE SESSION BACKUP
+        async function downloadSessionBackup() {
+            try {
+                const res = await fetch("/api/session/export");
+                if (res.status === 400) {
+                    const data = await res.json();
+                    showToast(data.error || "No se puede exportar. La sesión no está activa o registrada.", "error");
+                    return;
+                }
+                if (!res.ok) {
+                    showToast("Error de red al intentar descargar el respaldo.", "error");
+                    return;
+                }
+                const blob = await res.blob();
+                const url = window.URL.createObjectURL(blob);
+                const a = document.createElement('a');
+                a.href = url;
+                // Try to extract filename from header
+                const disposition = res.headers.get('content-disposition');
+                let filename = 'yoshida_session_backup.json';
+                if (disposition && disposition.indexOf('filename=') !== -1) {
+                    filename = disposition.split('filename=')[1].replace(/"/g, '');
+                }
+                a.download = filename;
+                document.body.appendChild(a);
+                a.click();
+                a.remove();
+                showToast("Copia de seguridad de la sesión de WhatsApp descargada con éxito.");
+            } catch (err) {
+                console.error(err);
+                showToast("Ocurrió un error al intentar exportar la sesión.", "error");
+            }
+        }
+
+        // IMPORT ACTIVE SESSION BACKUP
+        async function importSessionBackup(event) {
+            const file = event.target.files[0];
+            if (!file) return;
+
+            if (!confirm("¿Seguro de que deseas restaurar esta sesión de WhatsApp? Se sobrescribirá la sesión actual y se reiniciará la conexión.")) {
+                event.target.value = "";
+                return;
+            }
+
+            try {
+                const content = await file.text();
+                const sessionBackupData = JSON.parse(content);
+
+                const res = await fetch("/api/session/import", {
+                    method: "POST",
+                    headers: { "Content-Type": "application/json" },
+                    body: JSON.stringify(sessionBackupData)
+                });
+
+                const data = await res.json();
+                if (res.ok && data.success) {
+                    showToast(data.message || "¡Sesión de WhatsApp importada! Reiniciando...");
+                    setTimeout(() => { window.location.reload(); }, 2000);
+                } else {
+                    showToast(data.error || "Error al restaurar la sesión de WhatsApp.", "error");
+                }
+            } catch (err) {
+                console.error(err);
+                showToast("Formato de archivo inválido u ocurre un error de lectura.", "error");
+            } finally {
+                event.target.value = "";
             }
         }
 
