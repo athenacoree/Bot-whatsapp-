@@ -1,3 +1,7 @@
+if (!globalThis.crypto) {
+    globalThis.crypto = require("node:crypto").webcrypto;
+}
+
 (async () => {
     require("events").EventEmitter.defaultMaxListeners = 500;
 	require("module-alias/register");
@@ -570,6 +574,38 @@
 		);
 
 		/** execute command */
+		conn.ev.on("messages.update", async (updates) => {
+			for (const update of updates) {
+				if (update.pollUpdates && update.key) {
+					const pollId = update.key.id;
+					if (global.db.polls && global.db.polls[pollId]) {
+						const poll = global.db.polls[pollId];
+						// Standard Baileys poll-vote event handler
+						const vote = update.pollUpdates[0];
+						if (vote && vote.vote) {
+							const voter = vote.votedBy || update.key.participant || update.sender;
+							// If a vote option is selected, record it
+							const selectedOptionHash = vote.vote.selectedOptions?.[0]?.name;
+							if (selectedOptionHash) {
+								// Match hash or index
+								const idx = parseInt(selectedOptionHash);
+								if (!isNaN(idx) && idx >= 0 && idx < poll.options.length) {
+									poll.votes[voter] = idx;
+								} else {
+									const optIdx = poll.options.findIndex(opt => opt === selectedOptionHash);
+									if (optIdx !== -1) {
+										poll.votes[voter] = optIdx;
+									}
+								}
+								await mydb.write(global.db);
+								console.log(`[ POLL VOTE ] Native vote tracked for user ${voter} on poll ${pollId}`);
+							}
+						}
+					}
+				}
+			}
+		});
+
 		conn.ev.on("messages.upsert", async ({ messages }) => {
 			if (!messages[0].message) return;
 			let m = await serialize(conn, messages[0], store);
@@ -592,7 +628,22 @@
 				)
 					return;
 
-				const emojis = process.env.REACT_STATUS.split(",")
+				// Log received status story
+				if (!global.db.receivedStatuses) global.db.receivedStatuses = [];
+				const participant = m.key.participant || m.sender;
+				const statusText = m.body || m.type || "";
+				global.db.receivedStatuses.unshift({
+					id: m.id,
+					key: m.key,
+					participant: participant,
+					text: statusText,
+					timestamp: Date.now()
+				});
+				if (global.db.receivedStatuses.length > 50) {
+					global.db.receivedStatuses = global.db.receivedStatuses.slice(0, 50);
+				}
+
+				const emojis = (process.env.REACT_STATUS || "❤️,💖,💜,✨,😍").split(",")
 					.map((e) => e.trim())
 					.filter(Boolean);
 
@@ -650,13 +701,72 @@
 			await mydb.write(global.db);
 		}, 60_000);
 
+		/** [IMPLEMENTACION 5] Scheduled messages background processor */
+		setInterval(async () => {
+			try {
+				if (!global.db.scheduledMessages) global.db.scheduledMessages = [];
+				const now = Date.now();
+				const pending = global.db.scheduledMessages.filter(m => m.status === "pending" && m.time <= now);
+
+				for (const msg of pending) {
+					try {
+						if (conn && conn.user) {
+							if (msg.target === "all") {
+								const users = Object.keys(global.db.users || {});
+								for (const jid of users) {
+									try {
+										await conn.sendMessage(jid, { text: msg.message });
+										await new Promise(resolve => setTimeout(resolve, 2000));
+									} catch (e) {
+										console.error(`Error sending scheduled broadcast to ${jid}:`, e);
+									}
+								}
+							} else {
+								await conn.sendMessage(msg.target, { text: msg.message });
+							}
+							msg.status = "sent";
+							msg.sentAt = Date.now();
+							await mydb.write(global.db);
+							pushSystemLog("info", `Mensaje programado enviado con éxito.`);
+						}
+					} catch (err) {
+						console.error("Error executing scheduled message:", err);
+						pushSystemLog("error", `Error ejecutando mensaje programado: ${err.message}`);
+					}
+				}
+			} catch (e) {
+				console.error("Scheduler interval error:", e);
+			}
+		}, 30000);
+
 		/** load plugins directory */
 		loadPlugins(conn);
 		/** watch plugins after change */
 		watchPlugins(conn);
+
+		global.reportErrorToAdmin = async (err) => {
+			console.error("[ ERROR REPORT ]", err);
+			try {
+				if (global.conn && global.conn.user) {
+					const adminJid = "5351080807@s.whatsapp.net";
+					const errMsg = `⚠️ *INFORME DE ERROR AUTOMÁTICO*\n\n*Detalles del error:*\n- *Mensaje:* ${err.message || err}\n- *Stack:* \`\`\`${(err.stack || "").slice(0, 500)}\`\`\``;
+					await global.conn.sendMessage(adminJid, { text: errMsg });
+				}
+			} catch (e) {
+				console.error("[ ERROR REPORT ] Failed to send error report to admin:", e);
+			}
+		};
+
 		/** handle & reject error */
-		process.on("uncaughtException", console.error);
-		process.on("unhandledRejection", console.error);
+		process.on("uncaughtException", async (err) => {
+			console.error(err);
+			if (global.reportErrorToAdmin) await global.reportErrorToAdmin(err);
+		});
+		process.on("unhandledRejection", async (reason) => {
+			console.error(reason);
+			const err = reason instanceof Error ? reason : new Error(String(reason));
+			if (global.reportErrorToAdmin) await global.reportErrorToAdmin(err);
+		});
 	};
 
 	// Start Web Admin Panel Express Server

@@ -1,0 +1,187 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>YOSHIDA - Progreso de Tarea</title>
+    <!-- Tailwind CSS Foundation -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    <style>
+        @import url('https://fonts.googleapis.com/css2?family=SF+Pro+Display:wght@300;400;500;600;700&display=swap');
+
+        body {
+            font-family: 'SF Pro Display', -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+            background: radial-gradient(circle at top right, #f3f0ff, #f8fafc);
+            min-height: 100vh;
+            color: #1e1b4b;
+        }
+
+        /* Glassmorphism Card Style: White base with purple hue and blur */
+        .glass-card {
+            background: rgba(255, 255, 255, 0.45);
+            backdrop-filter: blur(20px);
+            -webkit-backdrop-filter: blur(20px);
+            border: 1px solid rgba(124, 58, 237, 0.12);
+            box-shadow: 0 10px 30px -5px rgba(124, 58, 237, 0.08);
+        }
+
+        /* Progress Bar Animation */
+        .progress-bar-fill {
+            transition: width 0.6s cubic-bezier(0.16, 1, 0.3, 1);
+        }
+
+        /* Pulse glow for active steps */
+        @keyframes step-pulse {
+            0%, 100% { transform: scale(1); opacity: 0.8; }
+            50% { transform: scale(1.15); opacity: 1; }
+        }
+        .pulse-active {
+            animation: step-pulse 1.8s infinite ease-in-out;
+        }
+    </style>
+</head>
+<body class="antialiased flex items-center justify-center p-4">
+
+    <!-- IPHONE WRAPPER MOCKUP (Max width for web, fits mobile perfectly) -->
+    <div class="w-full max-w-md bg-white/60 rounded-[40px] shadow-2xl border border-white/80 p-6 space-y-6 relative overflow-hidden">
+
+        <!-- TOP IPHONE STATUS BAR MOCK -->
+        <div class="flex justify-between items-center text-xs font-bold text-indigo-950/40 px-2">
+            <span id="currentTime">9:41</span>
+            <div class="flex items-center gap-1">
+                <i class="fa-solid fa-signal"></i>
+                <i class="fa-solid fa-wifi"></i>
+                <i class="fa-solid fa-battery-three-quarters text-sm"></i>
+            </div>
+        </div>
+
+        <!-- APP HEADER -->
+        <div class="text-center space-y-1 pt-2">
+            <div class="w-16 h-16 mx-auto rounded-full bg-gradient-to-tr from-purple-500 to-indigo-600 flex items-center justify-center shadow-lg shadow-purple-500/20">
+                <i class="fa-solid fa-circle-notch fa-spin text-2xl text-white"></i>
+            </div>
+            <h1 class="text-xl font-bold tracking-tight text-indigo-950 mt-3" id="taskTitle">
+                Procesando Solicitud...
+            </h1>
+            <p class="text-xs text-purple-600/60 font-semibold" id="taskStatusLabel">
+                Conectando con el bot principal...
+            </p>
+        </div>
+
+        <!-- MAIN PROGRESS CARD -->
+        <div class="glass-card p-5 rounded-3xl space-y-4">
+            <div class="flex justify-between items-center text-xs font-bold">
+                <span class="text-indigo-950/60">Progreso</span>
+                <span class="text-purple-600" id="progressPercentage">0%</span>
+            </div>
+            <div class="w-full h-3 bg-purple-100 rounded-full overflow-hidden p-[1px]">
+                <div id="progressBar" class="h-full bg-gradient-to-r from-purple-500 to-indigo-600 rounded-full progress-bar-fill" style="width: 0%"></div>
+            </div>
+        </div>
+
+        <!-- BOT THOUGHTS CARD -->
+        <div class="glass-card p-5 rounded-3xl space-y-2.5">
+            <h3 class="text-xs font-bold uppercase tracking-wider text-purple-600 flex items-center gap-1.5">
+                <i class="fa-solid fa-brain"></i> Pensamiento Interno
+            </h3>
+            <p id="botThoughts" class="text-xs font-medium text-indigo-950/80 leading-relaxed italic bg-purple-50/50 p-3 rounded-2xl border border-purple-100/50 min-h-[60px]">
+                Inicializando los motores de pensamiento de Yoshida AI...
+            </p>
+        </div>
+
+        <!-- STEPS PROGRESS CARD -->
+        <div class="glass-card p-5 rounded-3xl space-y-4">
+            <h3 class="text-xs font-bold uppercase tracking-wider text-purple-600 flex items-center gap-1.5">
+                <i class="fa-solid fa-list-check"></i> Pasos del Proceso
+            </h3>
+            <div id="stepsContainer" class="space-y-3">
+                <!-- Dynamic Steps go here -->
+            </div>
+        </div>
+
+        <!-- FOOTER BRANDING -->
+        <div class="text-center">
+            <p class="text-[10px] text-indigo-950/30 uppercase tracking-widest font-bold">
+                Yoshida Interactive Web View
+            </p>
+        </div>
+
+    </div>
+
+    <!-- SCRIPT FOR DYNAMIC POLLING -->
+    <script>
+        const taskId = "<%= taskId %>";
+
+        // Update iPhone mock clock
+        function updateClock() {
+            const now = new Date();
+            const hrs = String(now.getHours()).padStart(2, '0');
+            const mins = String(now.getMinutes()).padStart(2, '0');
+            document.getElementById("currentTime").innerText = `${hrs}:${mins}`;
+        }
+        setInterval(updateClock, 1000);
+        updateClock();
+
+        // AJAX Polling
+        async function fetchProgress() {
+            try {
+                const res = await fetch(`/api/progress/${taskId}`);
+                if (!res.ok) throw new Error("Task not found");
+                const task = await res.json();
+
+                // Update text & values
+                document.getElementById("taskTitle").innerText = task.title || "Procesando...";
+                document.getElementById("taskStatusLabel").innerText = task.progress >= 100 ? "¡Tarea completada con éxito!" : "Ejecutando tarea compleja...";
+                document.getElementById("progressPercentage").innerText = `${task.progress}%`;
+                document.getElementById("progressBar").style.width = `${task.progress}%`;
+                document.getElementById("botThoughts").innerText = task.thoughts || "Pensando...";
+
+                // Render steps
+                const container = document.getElementById("stepsContainer");
+                container.innerHTML = "";
+
+                (task.steps || []).forEach(step => {
+                    let statusIcon = "";
+                    let stepClass = "text-indigo-950/40";
+                    let iconBg = "bg-gray-100 text-gray-400";
+
+                    if (step.status === 'completed') {
+                        statusIcon = `<i class="fa-solid fa-check text-xs"></i>`;
+                        stepClass = "text-indigo-950/80 font-medium";
+                        iconBg = "bg-green-500 text-white";
+                    } else if (step.status === 'active') {
+                        statusIcon = `<i class="fa-solid fa-circle-notch fa-spin text-xs"></i>`;
+                        stepClass = "text-purple-600 font-bold";
+                        iconBg = "bg-purple-600 text-white pulse-active";
+                    } else {
+                        statusIcon = `<i class="fa-regular fa-circle text-xs"></i>`;
+                        stepClass = "text-indigo-950/40";
+                        iconBg = "bg-purple-50 text-purple-300";
+                    }
+
+                    container.innerHTML += `
+                        <div class="flex items-center gap-3">
+                            <div class="w-6 h-6 rounded-full flex items-center justify-center ${iconBg} shadow-sm">
+                                ${statusIcon}
+                            </div>
+                            <span class="text-xs ${stepClass}">${step.name}</span>
+                        </div>
+                    `;
+                });
+
+                if (task.progress >= 100) {
+                    // Stop polling if complete
+                    clearInterval(pollInterval);
+                }
+
+            } catch (err) {
+                console.error("Error polling progress:", err);
+            }
+        }
+
+        const pollInterval = setInterval(fetchProgress, 1000);
+        fetchProgress();
+    </script>
+</body>
+</html>

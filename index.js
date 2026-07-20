@@ -1,3 +1,7 @@
+if (!globalThis.crypto) {
+    globalThis.crypto = require("node:crypto").webcrypto;
+}
+
 const { spawn } = require("child_process");
 const path = require("path");
 const fs = require("fs");

