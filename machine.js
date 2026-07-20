@@ -189,6 +189,10 @@ if (!globalThis.crypto) {
 		global.db.setting.disabledPlugins = [];
 	}
 
+	if (global.db.setting.pairingCodeRequested === undefined) {
+		global.db.setting.pairingCodeRequested = false;
+	}
+
 	await mydb.write(global.db);
 	console.log("[ DATABASE ] Database fully initialized and loaded.");
 
@@ -277,8 +281,16 @@ if (!globalThis.crypto) {
 		const sessionConfig = await getSessionState();
 		const { state, saveCreds, deleteSession } = sessionConfig;
 
-		const version = [2, 3000, 1043430842];
-		const isLatest = true;
+		let version, isLatest;
+		try {
+			const latestVersion = await baileys.fetchLatestBaileysVersion();
+			version = latestVersion.version;
+			isLatest = latestVersion.isLatest;
+		} catch (err) {
+			console.error("[ SESSION ] Failed to fetch dynamic Baileys version, falling back to static version:", err);
+			version = [2, 3000, 1043430842];
+			isLatest = true;
+		}
 		console.log(
 			`-- Using WA v${version.join(".")}, isLatest: ${isLatest} --`
 		);
@@ -341,30 +353,38 @@ if (!globalThis.crypto) {
 			conn.user.jid = await conn.decodeJid(conn.user.id);
 
 		if (pairingState && !conn.authState.creds.registered) {
-			try {
-				const rawNumber = pairingNumber;
-				if (!rawNumber) {
-					console.warn("[SESSION] PAIRING_STATE is true, but PAIRING_NUMBER is empty or not defined. Please set PAIRING_NUMBER in your environment variables.");
+			if (global.db.setting.pairingCodeRequested === true) {
+				try {
+					const rawNumber = pairingNumber;
+					if (!rawNumber) {
+						console.warn("[SESSION] PAIRING_STATE is true, but PAIRING_NUMBER is empty or not defined. Please set PAIRING_NUMBER in your environment variables.");
+						process.exit(0);
+					}
+					const phoneNumber = rawNumber.replace(/[^0-9]/g, "");
+					if (!phoneNumber) {
+						console.warn("[SESSION] PAIRING_NUMBER is invalid. Please set PAIRING_NUMBER to a valid phone number (e.g., 5491122334455).");
+						process.exit(0);
+					}
+					await baileys.delay(3000);
+					const code = await conn.requestPairingCode(
+						phoneNumber,
+						"YOSHIDA1"
+					);
+					const formattedCode = code?.match(/.{1,4}/g)?.join("-") || code;
+					global.pairingCode = formattedCode;
+					console.log(
+						`Pairing code: \x1b[32m${formattedCode}\x1b[39m`
+					);
+
+					// Reset pairingCodeRequested to false and save to database
+					global.db.setting.pairingCodeRequested = false;
+					await mydb.write(global.db);
+				} catch (e) {
+					console.error("[+] Gagal mendapatkan kode pairing", e);
 					process.exit(0);
 				}
-				const phoneNumber = rawNumber.replace(/[^0-9]/g, "");
-				if (!phoneNumber) {
-					console.warn("[SESSION] PAIRING_NUMBER is invalid. Please set PAIRING_NUMBER to a valid phone number (e.g., 5491122334455).");
-					process.exit(0);
-				}
-				await baileys.delay(3000);
-				const code = await conn.requestPairingCode(
-					phoneNumber,
-					"YOSHIDA1"
-				);
-				const formattedCode = code?.match(/.{1,4}/g)?.join("-") || code;
-				global.pairingCode = formattedCode;
-				console.log(
-					`Pairing code: \x1b[32m${formattedCode}\x1b[39m`
-				);
-			} catch (e) {
-				console.error("[+] Gagal mendapatkan kode pairing", e);
-				process.exit(0);
+			} else {
+				console.log("[SESSION] No hay sesión activa. Esperando solicitud manual de código desde el panel de administración.");
 			}
 		}
 
@@ -420,8 +440,11 @@ if (!globalThis.crypto) {
 							console.log(
 								"[+] Session Logged Out.. Recreate session..."
 							);
-							pushSystemLog("error", "Sesión cerrada (401). Se recreará la sesión.");
-							await sendWebhookAlert("Sesión cerrada", "El bot se desconectó de WhatsApp (401) y se está recreando la sesión.");
+							pushSystemLog("error", "Sesión cerrada (401). Se eliminará la sesión.");
+							await sendWebhookAlert("Sesión cerrada", "El bot se desconectó de WhatsApp (401) y se está eliminando la sesión.");
+							// Ensure pairing code is not automatically requested upon restart
+							global.db.setting.pairingCodeRequested = false;
+							await mydb.write(global.db);
 							await deleteSession();
 							console.log("[+] Session removed!!");
 							process.send("reset");
@@ -437,18 +460,13 @@ if (!globalThis.crypto) {
 						process.exit();
 						break;
 					case 405:
-						try {
-							console.log(
-								"[+] Session Not Logged In.. Recreate session..."
-							);
-							pushSystemLog("error", "Sesión no válida (405). Se recreará la sesión.");
-							await sendWebhookAlert("Sesión inválida", "WhatsApp rechazó la sesión (405). Se recreará y se necesitará un nuevo QR o pairing code.");
-							await deleteSession();
-							console.log("[+] Session removed!!");
-							process.send("reset");
-						} catch {
-							console.log("[+] Session not found!!");
+						console.log("[+] Session Not Logged In (405). Keeping session and attempting reconnect with backoff...");
+						pushSystemLog("warn", "Sesión no válida (405). No se borrará la sesión automáticamente. Intentando reconectar con backoff...");
+						if (lastDisconnect?.error) {
+							console.log("[+] 405 detailed error log:", JSON.stringify(lastDisconnect.error, null, 2));
+							pushSystemLog("info", `Detalles error 405: ${lastDisconnect.error.message || lastDisconnect.error}`);
 						}
+						await scheduledReconnect("Conexión rechazada (405)");
 						break;
 					default:
 						await scheduledReconnect(`Conexión cerrada (código ${reason || "desconocido"})`);
