@@ -282,15 +282,36 @@ if (!globalThis.crypto) {
 		const { state, saveCreds, deleteSession } = sessionConfig;
 
 		let version, isLatest;
-		try {
-			const latestVersion = await baileys.fetchLatestBaileysVersion();
-			version = latestVersion.version;
-			isLatest = latestVersion.isLatest;
-		} catch (err) {
-			console.error("[ SESSION ] Failed to fetch dynamic Baileys version, falling back to static version:", err);
-			version = [2, 3000, 1043430842];
-			isLatest = true;
+		if (process.env.WA_VERSION_OVERRIDE) {
+			try {
+				version = process.env.WA_VERSION_OVERRIDE.split(".").map(v => parseInt(v, 10));
+				isLatest = true;
+				console.log(`[VERSION] Usando versión forzada mediante WA_VERSION_OVERRIDE: ${version.join(".")}`);
+			} catch (err) {
+				console.error("[VERSION] Error al parsear WA_VERSION_OVERRIDE, se ignorará:", err);
+			}
 		}
+
+		if (!version) {
+			if (typeof baileys.fetchLatestWaWebVersion === "function") {
+				try {
+					const latestVersion = await baileys.fetchLatestWaWebVersion();
+					version = latestVersion.version;
+					isLatest = latestVersion.isLatest;
+					console.log(`[VERSION] Usando fetchLatestWaWebVersion: ${version.join(".")}, isLatest: ${isLatest}`);
+				} catch (err) {
+					console.error("[VERSION] Falló la llamada a fetchLatestWaWebVersion, usando versión fija de respaldo:", err);
+					version = [2, 3000, 1043430842];
+					isLatest = true;
+					console.log(`[VERSION] Usando versión fija de respaldo: ${version.join(".")}`);
+				}
+			} else {
+				version = [2, 3000, 1043430842];
+				isLatest = true;
+				console.log(`[VERSION] fetchLatestWaWebVersion no disponible. Usando versión fija de respaldo: ${version.join(".")}`);
+			}
+		}
+
 		console.log(
 			`-- Using WA v${version.join(".")}, isLatest: ${isLatest} --`
 		);
