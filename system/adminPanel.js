@@ -889,6 +889,84 @@ function startAdminPanel(conn, mydb) {
         }
     });
 
+    // POST /api/clean-session - Clean session wipe for Postgres or Local
+    app.post("/api/clean-session", requireAuth, async (req, res) => {
+        try {
+            const sessionType = process.env.SESSION_TYPE || "local";
+            const sessionName = process.env.SESSION_NAME || "session";
+            console.log(`[ ADMIN PANEL ] Clean session requested. Type: ${sessionType}, Name: ${sessionName}`);
+
+            if (sessionType.toLowerCase() === "postgresql" || sessionType.toLowerCase() === "postgres") {
+                // Initialize Postgres config
+                let postgreSQLConfig = {
+                    user: process.env.POSTGRES_USER,
+                    password: process.env.POSTGRES_PASSWORD,
+                    host: process.env.POSTGRES_HOST,
+                    port: parseInt(process.env.POSTGRES_PORT || "5432"),
+                    database: process.env.POSTGRES_DATABASE,
+                };
+
+                if (process.env.DATABASE_URL) {
+                    try {
+                        const { URL } = require("url");
+                        const parsed = new URL(process.env.DATABASE_URL);
+                        postgreSQLConfig = {
+                            user: parsed.username,
+                            password: decodeURIComponent(parsed.password || ""),
+                            host: parsed.hostname,
+                            port: parseInt(parsed.port || "5432"),
+                            database: parsed.pathname.replace(/^\//, ""),
+                            ssl: {
+                                rejectUnauthorized: false,
+                            },
+                        };
+                    } catch (e) {
+                        console.error("[ DATABASE ] Failed to parse DATABASE_URL inside adminPanel:", e);
+                    }
+                }
+
+                const { Pool } = require("pg");
+                const pool = new Pool(postgreSQLConfig);
+                try {
+                    // Delete matching rows from auth_data table
+                    await pool.query('DELETE FROM auth_data WHERE session_key LIKE $1', [`${sessionName}:%`]);
+                    console.log("[ SESSION ] Postgres session deleted successfully");
+                } catch (dbErr) {
+                    console.error("[ SESSION ] Error deleting Postgres session:", dbErr);
+                    throw dbErr;
+                } finally {
+                    await pool.end();
+                }
+            } else {
+                // Local session deletion
+                const fs = require("node:fs");
+                const sessionPath = path.join(process.cwd(), sessionName);
+                if (fs.existsSync(sessionPath)) {
+                    fs.rmSync(sessionPath, {
+                        recursive: true,
+                        force: true,
+                    });
+                    console.log("[ SESSION ] Local session deleted successfully");
+                }
+            }
+
+            res.json({ success: true, message: "Sesión eliminada con éxito. Reiniciando el bot..." });
+
+            setTimeout(() => {
+                console.log("[ ADMIN PANEL ] Restarting process after session wipe...");
+                if (process.send) {
+                    process.send("reset");
+                } else {
+                    process.exit(1);
+                }
+            }, 1500);
+
+        } catch (e) {
+            console.error("[ ADMIN PANEL ] Error clearing session:", e);
+            res.status(500).json({ error: e.message });
+        }
+    });
+
     // TRIGGER SYSTEM RESTART ENDPOINT
     app.post("/api/restart", requireAuth, (req, res) => {
         res.json({ success: true });

@@ -12,6 +12,22 @@ if (!globalThis.crypto) {
 	const { Boom } = require("@hapi/boom");
 	const NodeCache = require("node-cache");
 	const baileys = require("@whiskeysockets/baileys");
+
+	let baileysVersion = "unknown";
+	try {
+		const baileysPkgPath = require.resolve("@whiskeysockets/baileys/package.json");
+		const baileysPkg = JSON.parse(fs.readFileSync(baileysPkgPath, "utf-8"));
+		baileysVersion = baileysPkg.version;
+	} catch (e) {
+		try {
+			const pkg = require("@whiskeysockets/baileys/package.json");
+			baileysVersion = pkg.version;
+		} catch (err) {
+			// fallback
+		}
+	}
+	console.log(`[ STARTUP ] Real baileys-mod version loaded: ${baileysVersion}`);
+
 	const QRCode = require("qrcode");
 	const { loadPlugins, watchPlugins, plugins } = require("@system/plugins");
 	const { Client, serialize } = require("@system/socket");

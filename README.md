@@ -524,6 +524,47 @@ We welcome contributions! Here's how you can help:
 
 ---
 
+## 🚨 **Incidentes y Resolución (Troubleshooting)**
+
+### **Incidente de Autenticación WhatsApp (Error 401 tras Pairing)**
+
+En sistemas de despliegue continuo como Render, puede ocurrir un rechazo silencioso de la sesión de WhatsApp (error 401 / desvinculación constante) debido a actualizaciones automáticas descontroladas de dependencias flotantes.
+
+#### **Causa Raíz:**
+1. La dependencia `"@whiskeysockets/baileys": "npm:baileys-mod"` en `package.json` no tenía una versión fija, forzando la instalación del último fork disponible en cada build.
+2. El archivo `package-lock.json` estaba ignorado en `.gitignore`, impidiendo replicar una instalación idéntica entre entornos de desarrollo y producción.
+3. El cambio del formato interno de las credenciales de sesión en la nueva versión provocó incompatibilidades con la base de datos Postgres (`postgres-baileys`), resultando en corrupción de sesión silenciosa.
+
+#### **Solución Aplicada (Medidas Obligatorias):**
+- **Versión Fija:** Se fijaron las versiones exactas en `package.json` para garantizar la estabilidad:
+  - `"@whiskeysockets/baileys": "npm:baileys-mod@6.8.5"`
+  - `"postgres-baileys": "1.5.0"`
+- **Seguimiento del Lockfile:** Se eliminó `package-lock.*` de `.gitignore` y se subió el `package-lock.json` al repositorio para congelar el árbol de dependencias.
+- **Log de Diagnóstico de Arranque:** Al iniciar, `machine.js` lee el `package.json` interno del módulo cargado y registra en consola la versión exacta instalada.
+- **Limpieza de Sesión Remota:** Se añadió un endpoint seguro `/api/clean-session` y un botón **"Borrar Sesión WA"** en el Panel de Administración (bajo Ajustes Generales) para limpiar completamente la sesión en la base de datos PostgreSQL o almacenamiento local e iniciar un nuevo emparejamiento limpio.
+
+---
+
+### 🔄 **Procedimiento de Rollback / Verificación**
+
+Si vuelves a experimentar desconexiones inexplicables tras una reinstalación:
+
+1. **Verifica la versión cargada:**
+   Revisa los logs de arranque en consola o el panel. Deberías ver:
+   `[ STARTUP ] Real baileys-mod version loaded: X.Y.Z`
+
+2. **Procedimiento de Rollback de Versión:**
+   - Si una actualización de `baileys-mod` rompe la compatibilidad, edita `package.json` y fija una versión estable anterior conocida sin `^` ni `~` (ej: `npm:baileys-mod@6.8.5`).
+   - Ejecuta localmente `npm install --legacy-peer-deps` para regenerar el `package-lock.json`.
+   - Haz commit de ambos archivos (`package.json` y `package-lock.json`).
+
+3. **Borrado Limpio de Sesión Corrupta:**
+   - Ve a la pestaña **Ajustes Generales** en tu Panel Admin.
+   - Haz clic en **Borrar Sesión WA**.
+   - Esto eliminará las credenciales corruptas de la tabla `auth_data` en Postgres (o la carpeta de sesión local) y reiniciará automáticamente el bot para que puedas escanear el QR o solicitar un nuevo código de pairing limpio.
+
+---
+
 ## 🆘 **Support & Community**
 
 <div align="center">
