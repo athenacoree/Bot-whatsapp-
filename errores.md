@@ -82,6 +82,48 @@ Se mejoró la configuración de salida de la inteligencia artificial tanto en el
 
 ---
 
+## 💥 Incidente 2: Desactivación de Canales, Grupos y Estados para un Funcionamiento de Mensajería Directo
+
+### 🔍 Descripción del Problema
+El usuario requería que el bot dejara de interactuar con grupos de WhatsApp, canales de difusión/newsletters y estados (historias), eliminando toda la sobrecarga de automatización correspondiente. El bot debía enfocarse única y exclusivamente en leer y responder de forma conversacional a mensajes directos/privados con la inteligencia artificial, eliminando por completo el sistema de comandos (p. ej., stickers, herramientas) y manteniendo las respuestas fluidas y naturales.
+
+### 🎯 Causa Raíz y Complejidades
+Anteriormente, el bot procesaba las actualizaciones de participantes de grupos, cambios grupales y reaccionaba a los estados/historias entrantes de WhatsApp de forma asíncrona. Asimismo, contenía un enrutador de comandos asíncrono robusto en `handler.js` que desviaba los mensajes con prefijo o disparaba plugins.
+
+### 🛠️ Solución Aplicada
+1. **Bypass de Grupos, Canales y Estados:** Se modificaron `machine.js` y `handler.js` para ignorar inmediatamente cualquier mensaje procedente de estados (`status@broadcast`), grupos (`remoteJid.endsWith("@g.us")`) y canales de difusión/boletines (`remoteJid.endsWith("@newsletter")`). Los callbacks de eventos `groups.update` y `group-participants.update` en `machine.js` fueron desactivados.
+2. **Desactivación Completa de Comandos:** Se reestructuró la lógica de procesamiento en `handler.js` para que todos los mensajes de texto entrantes de chats directos sean redirigidos directamente al servicio unificado de inteligencia artificial (`generateAIResponse`), saltándose todo el procesamiento de comandos y plugins.
+
+---
+
+## 💥 Incidente 3: Fallos en las Respuestas de la IA (Falta de Respuesta y Estadísticas del Panel)
+
+### 🔍 Descripción del Problema
+Se reportó que el bot a veces no respondía al chat, y que el panel de administración no mostraba estadísticas de palabras más usadas (p. ej., "hola") a pesar de haberse enviado en múltiples ocasiones por WhatsApp.
+
+### 🎯 Causa Raíz
+1. **Regla de Inactividad de `self_mode`:** En `aiService.js`, la verificación de inactividad del bot (`self_mode`) filtraba y retornaba `null` para todas las personas, bloqueando incluso al dueño/administrador de recibir respuestas de prueba cuando el bot estaba inactivo.
+2. **Orden de los Logs de Telemetría:** El registro de mensajes en la base de datos `recentLogs` se realizaba en `handler.js` después de diversos interceptores (como el de registro de usuarios o límites de mensajes). Si un usuario escribía "hola" antes de registrarse o quedaba atrapado en una validación previa, el mensaje nunca se guardaba en el historial de telemetría.
+3. **Filtro de Palabras de Parada (Stop-Words):** En `adminPanel.js`, las palabras conversacionales comunes como `"hola"`, `"gracias"`, `"bot"` y `"yoshida"` se encontraban dentro de la lista negra de palabras excluidas (`stopWords`), impidiendo su visualización en el gráfico de frecuencia de palabras del panel.
+
+### 🛠️ Solución Aplicada
+1. **Excepción de Administración en Inactividad:** Se corrigió la lógica en `aiService.js` para que el bot responda al dueño o administrador incluso si `self_mode` está encendido.
+2. **Priorización de Logs:** Se reubicó la sección de registro e inserción en `recentLogs` al inicio de `handler.js`, inmediatamente después de la validación del esquema. De esta forma, cada "hola" u otro mensaje se registra para telemetría sin importar el flujo o estado de registro.
+3. **Optimización del Filtro `stopWords`:** Se removieron términos de conversación clave como `"hola"`, `"gracias"`, `"bot"` y `"yoshida"` del conjunto de palabras de parada de la telemetría en `adminPanel.js`. Ahora, el panel puede contar y reflejar correctamente cuáles son los términos más usados por los usuarios de WhatsApp.
+
+---
+
+## ⚙️ Nueva Característica: Mensajería Manual Directa desde el Panel de Administración
+
+### 🔍 Descripción de la Característica
+Se requería un apartado en el panel de administración para poder redactar y enviar mensajes manuales a personas específicas directamente por medio del socket del bot.
+
+### 🛠️ Solución Implementada
+1. **Backend Endpoint:** Se implementó una nueva ruta segura `POST /api/manual-message` en `system/adminPanel.js` que extrae el número de teléfono, lo normaliza a formato de JID de WhatsApp y envía el mensaje de texto de manera inmediata a través del socket activo de Baileys (`global.conn.sendMessage`). Además, el mensaje saliente se registra en la sección de logs de chat para mantener el historial completo.
+2. **Frontend UI Card:** Se diseñó una tarjeta con estilo Glassmorphic iOS en `views/admin.ejs` con campos para ingresar el número telefónico con código de país y el cuerpo del mensaje, conectada mediante AJAX con el endpoint del backend para brindar retroalimentación instantánea.
+
+---
+
 ## 📈 Conclusión y Recomendaciones de Mantenimiento
 - **Monitoreo de Logs:** En caso de que se vuelva a presenciar inactividad, revisa los logs del sistema desde la pestaña de **Telemetría** o **Logs de Chat** en el panel para descartar nuevas restricciones de tasa.
 - **Configuraciones de la IA:** Mantener los tokens máximos de salida bajo `500` para garantizar respuestas rápidas y prevenir caídas por agotamiento de créditos en APIs externas como Gemini o OpenRouter.

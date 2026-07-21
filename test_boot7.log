@@ -1,0 +1,23 @@
+[ STARTUP ] Real baileys-mod version loaded: 6.8.5
+
+[ ENV CHECK ] Se detectaron posibles problemas de configuración:
+  ⚠️  REACT_STATUS no está definida. Se usará un set de emojis por defecto.
+
+[ DATABASE ] Database fully initialized and loaded.
+[ MACHINE ] SKIP_WA is true. Skipping WhatsApp connection logic for local development.
+
+[35m[ ADMIN PANEL ] Web interface listening on port 10030[0m
+
+[ SHUTDOWN ] Señal SIGTERM recibida. Guardando estado antes de salir...
+[ SHUTDOWN ] Base de datos guardada correctamente.
+[ INDEX ] Bot process exited with code 0, signal null.
+[ INDEX ] Unexpected exit. Restarting bot in 1.5 seconds...
+[ STARTUP ] Real baileys-mod version loaded: 6.8.5
+
+[ ENV CHECK ] Se detectaron posibles problemas de configuración:
+  ⚠️  REACT_STATUS no está definida. Se usará un set de emojis por defecto.
+
+[ DATABASE ] Database fully initialized and loaded.
+[ MACHINE ] SKIP_WA is true. Skipping WhatsApp connection logic for local development.
+
+[35m[ ADMIN PANEL ] Web interface listening on port 10030[0m

@@ -79,6 +79,49 @@ function startAdminPanel(conn, mydb) {
         }
     });
 
+    // POST /api/manual-message - Direct manual messaging endpoint
+    app.post("/api/manual-message", requireAuth, async (req, res) => {
+        try {
+            const { number, message } = req.body;
+            if (!number || !message) {
+                return res.status(400).json({ error: "Faltan número o mensaje." });
+            }
+            const cleaned = number.replace(/[^0-9]/g, "");
+            if (!cleaned) {
+                return res.status(400).json({ error: "Número inválido" });
+            }
+            const activeConn = global.conn;
+            if (!activeConn) {
+                return res.status(400).json({ error: "La conexión de WhatsApp no está activa o inicializada." });
+            }
+            const jid = `${cleaned}@s.whatsapp.net`;
+            await activeConn.sendMessage(jid, { text: message });
+
+            // Record this manual outbound message in recentLogs
+            if (!global.db.recentLogs) global.db.recentLogs = [];
+            const newLog = {
+                id: Date.now().toString() + "_" + Math.floor(Math.random() * 1000),
+                msgId: "manual_" + Date.now().toString(),
+                timestamp: Date.now(),
+                user: "Panel Administrativo",
+                jid: conn && conn.user && conn.user.id ? conn.decodeJid(conn.user.id) : "yo",
+                message: `[Mensaje Manual a +${cleaned}]`,
+                type: "privado",
+                response: message,
+                level: "info",
+                responseTime: 100
+            };
+            global.db.recentLogs.unshift(newLog);
+            if (global.db.recentLogs.length > 100) {
+                global.db.recentLogs = global.db.recentLogs.slice(0, 100);
+            }
+
+            res.json({ success: true, jid });
+        } catch (e) {
+            res.status(500).json({ error: e.message });
+        }
+    });
+
     // PUBLIC ENDPOINT FOR GENERATED WEBSITES (Bypassing requireAuth)
     app.get("/web/:id", (req, res) => {
         try {
@@ -232,10 +275,11 @@ function startAdminPanel(conn, mydb) {
                 .slice(0, 5);
 
             // 7. Most Used Words Analysis (Word Cloud statistics excluding common stop-words)
+            // Removed common conversational words like "hola", "bot", "yoshida", "gracias" so they appear in word frequency analytics!
             const stopWords = new Set([
                 "el", "la", "los", "las", "un", "una", "unos", "unas", "de", "del", "al", "a", "y", "o", "u", "e",
                 "que", "en", "con", "por", "para", "como", "no", "si", "se", "te", "me", "su", "sus", "tu",
-                "tus", "mi", "mis", "es", "son", "un", "bot", "yoshida", "hola", "chau", "gracias", "the", "and", "to", "of", "a", "in", "is"
+                "tus", "mi", "mis", "es", "son", "the", "and", "to", "of", "in", "is"
             ]);
             const wordsFreq = {};
             logs.forEach(log => {
