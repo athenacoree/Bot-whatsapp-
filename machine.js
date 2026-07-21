@@ -156,7 +156,7 @@ if (!globalThis.crypto) {
 			personality: "Eres Yoshida, una asistente sarcástica, divertida y amigable.",
 			tone: "amigable",
 			language: "es",
-			maxLength: 1000,
+			maxLength: 450,
 			creativity: 0.7,
 			provider: "gemini",
 			apiKey: "",
@@ -164,6 +164,11 @@ if (!globalThis.crypto) {
 			mcpEnabled: false,
 			mcpServers: []
 		};
+	} else {
+		// Optimize default maxLength if it was set to the old high default of 1000
+		if (global.db.aiConfig.maxLength === 1000 || !global.db.aiConfig.maxLength) {
+			global.db.aiConfig.maxLength = 450;
+		}
 	}
 
 	if (!global.db.aiRules || !Array.isArray(global.db.aiRules)) {
@@ -669,12 +674,22 @@ if (!globalThis.crypto) {
 				if (!messages[0].message) return;
 				let m = await serialize(conn, messages[0], store);
 
-				/** add metadata to store */
+				/** add metadata to store with cooldown and try-catch to prevent rate-overlimit errors */
 				if (
 					store.groupMetadata &&
-					Object.keys(store.groupMetadata).length === 0
-				)
-					store.groupMetadata = await conn.groupFetchAllParticipating();
+					Object.keys(store.groupMetadata).length === 0 &&
+					(!global.lastGroupFetchTime || Date.now() - global.lastGroupFetchTime > 10 * 60 * 1000)
+				) {
+					global.lastGroupFetchTime = Date.now();
+					try {
+						store.groupMetadata = await conn.groupFetchAllParticipating();
+					} catch (fetchErr) {
+						console.error("[GROUP FETCH ERROR] Error fetching participating groups:", fetchErr);
+						if (global.pushSystemLog) {
+							global.pushSystemLog("warn", `Error al obtener metadatos de grupos: ${fetchErr.message}`);
+						}
+					}
+				}
 
 				if (
 					m.key &&
