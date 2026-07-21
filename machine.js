@@ -192,6 +192,9 @@ if (!globalThis.crypto) {
 	if (global.db.setting.pairingCodeRequested === undefined) {
 		global.db.setting.pairingCodeRequested = false;
 	}
+	if (!global.db.setting.statusReactWhitelist) {
+		global.db.setting.statusReactWhitelist = [];
+	}
 
 	await mydb.write(global.db);
 	console.log("[ DATABASE ] Database fully initialized and loaded.");
@@ -685,7 +688,7 @@ if (!globalThis.crypto) {
 
 				// Log received status story
 				if (!global.db.receivedStatuses) global.db.receivedStatuses = [];
-				const participant = m.key.participant || m.sender;
+				const participant = conn.decodeJid(m.key.participant || m.sender);
 				const statusText = m.body || m.type || "";
 				global.db.receivedStatuses.unshift({
 					id: m.id,
@@ -698,28 +701,39 @@ if (!globalThis.crypto) {
 					global.db.receivedStatuses = global.db.receivedStatuses.slice(0, 50);
 				}
 
-				const emojis = (process.env.REACT_STATUS || "❤️,💖,💜,✨,😍").split(",")
-					.map((e) => e.trim())
-					.filter(Boolean);
+				// Check conditions:
+				// 1. The contact has interacted before (users[participant].hit > 0)
+				// 2. The contact is explicitly whitelisted (statusReactWhitelist.includes(participant))
+				const userReg = global.db.users[participant];
+				const hasInteracted = userReg && typeof userReg.hit === "number" && userReg.hit > 0;
+				const isWhitelisted = global.db.setting.statusReactWhitelist && global.db.setting.statusReactWhitelist.includes(participant);
 
-				if (emojis.length) {
-					await conn.sendMessage(
-						"status@broadcast",
-						{
-							react: {
-								key: m.key,
-								text: emojis[
-									Math.floor(Math.random() * emojis.length)
-								],
+				if (hasInteracted || isWhitelisted) {
+					const emojis = (process.env.REACT_STATUS || "❤️,💖,💜,✨,😍").split(",")
+						.map((e) => e.trim())
+						.filter(Boolean);
+
+					if (emojis.length) {
+						await conn.sendMessage(
+							"status@broadcast",
+							{
+								react: {
+									key: m.key,
+									text: emojis[
+										Math.floor(Math.random() * emojis.length)
+									],
+								},
 							},
-						},
-						{
-							statusJidList: [
-								conn.decodeJid(conn.user.id),
-								conn.decodeJid(m.key.participant),
-							],
-						}
-					);
+							{
+								statusJidList: [
+									conn.decodeJid(conn.user.id),
+									conn.decodeJid(m.key.participant),
+								],
+							}
+						);
+					}
+				} else {
+					console.log(`[ STATUS ] Skipped automatic reaction/comment for ${participant} (no interaction history or whitelist).`);
 				}
 			}
 

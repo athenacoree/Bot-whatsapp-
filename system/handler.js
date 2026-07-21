@@ -4,6 +4,7 @@ const API = require("@system/api");
 const uploader = require("@library/uploader");
 const Func = require("./functions");
 const { plugins } = require("./plugins");
+const { generateAIResponse } = require("./aiService");
 
 module.exports = async (conn, m, store) => {
 	try {
@@ -176,6 +177,38 @@ module.exports = async (conn, m, store) => {
 
 		if (setting.debug_mode && !m.fromMe && isOwner)
 			await m.reply(Func.jsonFormat(m));
+
+		// Chat libre con la IA (sin comandos)
+		const botJid = conn.decodeJid(conn.user.id);
+		const isNoPrefix = !m.prefix;
+		const shouldTriggerAiFreeChat = !m.fromMe && (
+			!m.isGroup
+				? (isNoPrefix && m.body && m.body.trim().length > 0)
+				: (isNoPrefix && m.body && m.body.trim().length > 0 && ((m.mentions && m.mentions.includes(botJid)) || (m.isQuoted && m.quoted.fromMe)))
+		);
+
+		if (shouldTriggerAiFreeChat) {
+			try {
+				// Enforce message limit decrement if applicable
+				if (!freeLimitDisabled && !isPrems && !m.fromMe && !m.isGroup) {
+					if (!users.unlockedFree && (users.referralsCount || 0) < 3) {
+						const isAiQuote = (users.activity && users.activity.aiHistory && users.activity.aiHistory.length > 0 && m.isQuoted && m.quoted.fromMe);
+						if (!isAiQuote) {
+							users.freeMessagesLeft--;
+						}
+					}
+				}
+
+				const response = await generateAIResponse(m, m.body, conn);
+				if (response) {
+					await m.reply(response);
+				}
+			} catch (error) {
+				console.error("[ AI FREE CHAT ERROR ]:", error);
+				await m.reply(`Ups! Ocurrió un error al procesar tu solicitud: ${error.message}`);
+			}
+			return; // End flow so plugins are not processed
+		}
 		if (
 			m.isGroup &&
 			!groupSet.stay &&
