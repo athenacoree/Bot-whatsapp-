@@ -665,80 +665,118 @@ if (!globalThis.crypto) {
 		});
 
 		conn.ev.on("messages.upsert", async ({ messages }) => {
-			if (!messages[0].message) return;
-			let m = await serialize(conn, messages[0], store);
+			try {
+				if (!messages[0].message) return;
+				let m = await serialize(conn, messages[0], store);
 
-			/** add metadata to store */
-			if (
-				store.groupMetadata &&
-				Object.keys(store.groupMetadata).length === 0
-			)
-				store.groupMetadata = await conn.groupFetchAllParticipating();
-
-			if (
-				m.key &&
-				!m.key.fromMe &&
-				m.key.remoteJid === "status@broadcast"
-			) {
+				/** add metadata to store */
 				if (
-					m.type === "protocolMessage" &&
-					m.message.protocolMessage.type === 0
+					store.groupMetadata &&
+					Object.keys(store.groupMetadata).length === 0
 				)
-					return;
+					store.groupMetadata = await conn.groupFetchAllParticipating();
 
-				// Log received status story
-				if (!global.db.receivedStatuses) global.db.receivedStatuses = [];
-				const participant = conn.decodeJid(m.key.participant || m.sender);
-				const statusText = m.body || m.type || "";
-				global.db.receivedStatuses.unshift({
-					id: m.id,
-					key: m.key,
-					participant: participant,
-					text: statusText,
-					timestamp: Date.now()
-				});
-				if (global.db.receivedStatuses.length > 50) {
-					global.db.receivedStatuses = global.db.receivedStatuses.slice(0, 50);
+				if (
+					m.key &&
+					!m.key.fromMe &&
+					m.key.remoteJid === "status@broadcast"
+				) {
+					try {
+						if (
+							m.type === "protocolMessage" &&
+							m.message.protocolMessage.type === 0
+						)
+							return;
+
+						// Log received status story
+						if (!global.db.receivedStatuses) global.db.receivedStatuses = [];
+						const participant = conn.decodeJid(m.key.participant || m.sender);
+						const statusText = m.body || m.type || "";
+						global.db.receivedStatuses.unshift({
+							id: m.id,
+							key: m.key,
+							participant: participant,
+							text: statusText,
+							timestamp: Date.now()
+						});
+						if (global.db.receivedStatuses.length > 50) {
+							global.db.receivedStatuses = global.db.receivedStatuses.slice(0, 50);
+						}
+
+						// Check conditions:
+						// 1. The contact has interacted before (users[participant].hit > 0)
+						// 2. The contact is explicitly whitelisted (statusReactWhitelist.includes(participant))
+						const userReg = global.db.users[participant];
+						const hasInteracted = userReg && typeof userReg.hit === "number" && userReg.hit > 0;
+						const isWhitelisted = global.db.setting.statusReactWhitelist && global.db.setting.statusReactWhitelist.includes(participant);
+
+						if (hasInteracted || isWhitelisted) {
+							const emojis = (process.env.REACT_STATUS || "❤️,💖,💜,✨,😍").split(",")
+								.map((e) => e.trim())
+								.filter(Boolean);
+
+							if (emojis.length) {
+								await conn.sendMessage(
+									"status@broadcast",
+									{
+										react: {
+											key: m.key,
+											text: emojis[
+												Math.floor(Math.random() * emojis.length)
+											],
+										},
+									},
+									{
+										statusJidList: [
+											conn.decodeJid(conn.user.id),
+											conn.decodeJid(m.key.participant || m.sender),
+										],
+									}
+								);
+							}
+						} else {
+							console.log(`[ STATUS ] Skipped automatic reaction/comment for ${participant} (no interaction history or whitelist).`);
+						}
+					} catch (statusErr) {
+						console.error("[ STATUS ERROR ] Error processing status react:", statusErr);
+						if (global.pushSystemLog) {
+							global.pushSystemLog("error", `Error procesando reacción de estado: ${statusErr.message}`);
+						}
+					}
 				}
 
-				// Check conditions:
-				// 1. The contact has interacted before (users[participant].hit > 0)
-				// 2. The contact is explicitly whitelisted (statusReactWhitelist.includes(participant))
-				const userReg = global.db.users[participant];
-				const hasInteracted = userReg && typeof userReg.hit === "number" && userReg.hit > 0;
-				const isWhitelisted = global.db.setting.statusReactWhitelist && global.db.setting.statusReactWhitelist.includes(participant);
-
-				if (hasInteracted || isWhitelisted) {
-					const emojis = (process.env.REACT_STATUS || "❤️,💖,💜,✨,😍").split(",")
-						.map((e) => e.trim())
-						.filter(Boolean);
-
-					if (emojis.length) {
-						await conn.sendMessage(
-							"status@broadcast",
-							{
-								react: {
-									key: m.key,
-									text: emojis[
-										Math.floor(Math.random() * emojis.length)
-									],
-								},
-							},
-							{
-								statusJidList: [
-									conn.decodeJid(conn.user.id),
-									conn.decodeJid(m.key.participant),
-								],
-							}
-						);
+				try {
+					await require("@system/case")(conn, m);
+				} catch (caseErr) {
+					console.error("[ CASE ERROR ]:", caseErr);
+					if (global.pushSystemLog) {
+						global.pushSystemLog("error", `Error en case.js: ${caseErr.message}`);
 					}
-				} else {
-					console.log(`[ STATUS ] Skipped automatic reaction/comment for ${participant} (no interaction history or whitelist).`);
+					if (global.reportErrorToAdmin) {
+						await global.reportErrorToAdmin(caseErr);
+					}
+				}
+
+				try {
+					await require("@system/handler")(conn, m, store, mydb);
+				} catch (handlerErr) {
+					console.error("[ HANDLER ERROR ]:", handlerErr);
+					if (global.pushSystemLog) {
+						global.pushSystemLog("error", `Error en handler.js: ${handlerErr.message}`);
+					}
+					if (global.reportErrorToAdmin) {
+						await global.reportErrorToAdmin(handlerErr);
+					}
+				}
+			} catch (upsertErr) {
+				console.error("[ UPSERT ERROR ] Error in messages.upsert main handler:", upsertErr);
+				if (global.pushSystemLog) {
+					global.pushSystemLog("error", `Error crítico en messages.upsert: ${upsertErr.message}`);
+				}
+				if (global.reportErrorToAdmin) {
+					await global.reportErrorToAdmin(upsertErr);
 				}
 			}
-
-			require("@system/case")(conn, m);
-			require("@system/handler")(conn, m, store, mydb);
 		});
 
 		/** reject call */
@@ -813,13 +851,30 @@ if (!globalThis.crypto) {
 		/** watch plugins after change */
 		watchPlugins(conn);
 
+		let lastSentTime = 0;
+		let suppressedCount = 0;
+
 		global.reportErrorToAdmin = async (err) => {
 			console.error("[ ERROR REPORT ]", err);
 			try {
+				const now = Date.now();
+				if (now - lastSentTime < 5 * 60 * 1000) {
+					suppressedCount++;
+					console.log(`[ ERROR REPORT ] Suppressed error report. Total suppressed in 5m: ${suppressedCount}`);
+					return;
+				}
+
 				if (global.conn && global.conn.user) {
 					const adminJid = "5351080807@s.whatsapp.net";
-					const errMsg = `⚠️ *INFORME DE ERROR AUTOMÁTICO*\n\n*Detalles del error:*\n- *Mensaje:* ${err.message || err}\n- *Stack:* \`\`\`${(err.stack || "").slice(0, 500)}\`\`\``;
+					let errMsg = `⚠️ *INFORME DE ERROR AUTOMÁTICO*\n\n*Detalles del error:*\n- *Mensaje:* ${err.message || err}\n- *Stack:* \`\`\`${(err.stack || "").slice(0, 500)}\`\`\``;
+
+					if (suppressedCount > 0) {
+						errMsg += `\n\n- *Avisos de error adicionales suprimidos en los últimos 5 minutos:* ${suppressedCount}`;
+					}
+
 					await global.conn.sendMessage(adminJid, { text: errMsg });
+					lastSentTime = now;
+					suppressedCount = 0;
 				}
 			} catch (e) {
 				console.error("[ ERROR REPORT ] Failed to send error report to admin:", e);

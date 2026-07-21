@@ -7,6 +7,7 @@ const { plugins } = require("./plugins");
 const { generateAIResponse } = require("./aiService");
 
 module.exports = async (conn, m, store) => {
+	if (m.chat === "status@broadcast" || (m.key && m.key.remoteJid === "status@broadcast")) return;
 	try {
 		require("@system/schema")(m);
 		const users = global.db.users[m.sender];
@@ -250,22 +251,6 @@ module.exports = async (conn, m, store) => {
 					users.limit = process.env.LIMIT;
 				});
 		}
-		cron.schedule(
-			"00 00 * * *",
-			() => {
-				setting.lastreset = Date.now();
-				Object.values(db.users).forEach((v) => {
-					if (v.limit < process.env.LIMIT && !v.premium) {
-						v.limit = process.env.LIMIT;
-					}
-				});
-				Object.entries(db.stats).map(([_, prop]) => (prop.today = 0));
-			},
-			{
-				scheduled: true,
-				timezone: process.env.TZ,
-			}
-		);
 		if (m.isGroup) groupSet.activity = new Date() * 1;
 		if (users) {
 			users.lastseen = new Date() * 1;
@@ -616,6 +601,36 @@ ${teks}`.trim(),
 		}
 	}
 };
+
+cron.schedule(
+	"00 00 * * *",
+	() => {
+		try {
+			if (global.db) {
+				if (global.db.setting) {
+					global.db.setting.lastreset = Date.now();
+				}
+				if (global.db.users) {
+					Object.values(global.db.users).forEach((v) => {
+						if (v.limit < process.env.LIMIT && !v.premium) {
+							v.limit = process.env.LIMIT;
+						}
+					});
+				}
+				if (global.db.stats) {
+					Object.entries(global.db.stats).map(([_, prop]) => (prop.today = 0));
+				}
+				console.log("[ CRON ] Reset daily limits successfully.");
+			}
+		} catch (err) {
+			console.error("[ CRON ERROR ]:", err);
+		}
+	},
+	{
+		scheduled: true,
+		timezone: process.env.TZ || "Asia/Jakarta",
+	}
+);
 
 fs.watchFile(require.resolve(__filename), () => {
 	fs.unwatchFile(require.resolve(__filename));
