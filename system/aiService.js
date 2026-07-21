@@ -177,7 +177,10 @@ async function generateAIResponse(m, userText, conn) {
 
         // Call proper AI model provider
         const provider = aiConfig.provider || "gemini";
-        const apiKey = aiConfig.apiKey || (provider === "gemini" ? process.env.GEMINI_API_KEY : "");
+        const apiKey = aiConfig.apiKey ||
+            (provider === "gemini" ? process.env.GEMINI_API_KEY :
+             provider === "openrouter" ? process.env.OPENROUTER_API_KEY :
+             provider === "grok" ? process.env.GROK_API_KEY : "");
         const modelName = aiConfig.model || (provider === "gemini" ? "gemini-2.0-flash" : "");
 
         if (provider === "gemini") {

@@ -119,6 +119,7 @@ module.exports = (m) => {
 		if (!("pluginDisable" in setting)) setting.pluginDisable = [];
 		if (!("owners" in setting)) setting.owners = process.env.OWNER || [];
 		if (!("autoResponses" in setting)) setting.autoResponses = [];
+		if (!("statusReactWhitelist" in setting)) setting.statusReactWhitelist = [];
 		if (!("absenceMode" in setting)) setting.absenceMode = false;
 		if (!("absenceMessage" in setting)) setting.absenceMessage = "Hola, en este momento no me encuentro disponible. Dejaré tu mensaje guardado.";
 		if (!("cover" in setting))
