@@ -224,12 +224,14 @@
 
                         <div class="grid grid-cols-1 sm:grid-cols-2 gap-4">
                             <div>
-                                <label class="block text-xs font-semibold text-indigo-950/60 uppercase tracking-wider mb-2">Tokens Máximos</label>
-                                <input type="number" id="maxLength" name="maxLength" value="<%= aiConfig.maxLength %>" class="w-full rounded-2xl bg-white/70 border border-purple-200/50 px-4 py-3 text-indigo-950 shadow-inner">
+                                <label class="block text-xs font-semibold text-indigo-950/60 uppercase tracking-wider mb-2">Tokens Máximos (Límite de Salida)</label>
+                                <input type="number" id="maxLength" name="maxLength" value="<%= aiConfig.maxLength %>" min="50" max="2000" class="w-full rounded-2xl bg-white/70 border border-purple-200/50 px-4 py-3 text-indigo-950 shadow-inner">
+                                <p class="text-[10px] text-indigo-950/50 mt-1">Límite de longitud de respuesta. Se recomiendan valores entre <b>150 y 500</b> para evitar mensajes excesivamente largos y errores de rate-overlimit.</p>
                             </div>
                             <div>
                                 <label class="block text-xs font-semibold text-indigo-950/60 uppercase tracking-wider mb-2">Temperatura (Creatividad)</label>
-                                <input type="number" step="0.1" id="creativity" name="creativity" value="<%= aiConfig.creativity %>" class="w-full rounded-2xl bg-white/70 border border-purple-200/50 px-4 py-3 text-indigo-950 shadow-inner">
+                                <input type="number" step="0.1" id="creativity" name="creativity" value="<%= aiConfig.creativity %>" min="0.0" max="2.0" class="w-full rounded-2xl bg-white/70 border border-purple-200/50 px-4 py-3 text-indigo-950 shadow-inner">
+                                <p class="text-[10px] text-indigo-950/50 mt-1">Controla qué tan variadas o creativas son las respuestas. Un valor bajo (ej. <b>0.3</b>) es más preciso; un valor alto (ej. <b>1.0</b> o más) es más creativo.</p>
                             </div>
                         </div>
 
