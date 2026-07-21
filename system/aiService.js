@@ -113,12 +113,6 @@ async function generateAIResponse(m, userText, conn) {
             }
         }
 
-        // Check if Bot is currently inactive
-        const botStatus = (global.db.setting.self_mode !== undefined) ? !global.db.setting.self_mode : true;
-        if (!botStatus) {
-            return null; // Bot is inactive/self mode
-        }
-
         // Construct System Instruction dynamically
         const isAdmin = conn && conn.user && [
             conn.decodeJid(conn.user.id).split`@`[0],
@@ -128,6 +122,12 @@ async function generateAIResponse(m, userText, conn) {
         ]
             .map((v) => v + "@s.whatsapp.net")
             .includes(m.sender);
+
+        // Check if Bot is currently inactive (ignore if message sender is the admin/owner so they can still receive responses)
+        const botStatus = (global.db.setting.self_mode !== undefined) ? !global.db.setting.self_mode : true;
+        if (!botStatus && !isAdmin) {
+            return null; // Bot is inactive/self mode
+        }
 
         let systemInstruction = "";
         if (isAdmin && aiConfig.adminPersonality) {

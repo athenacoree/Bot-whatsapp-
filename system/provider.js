@@ -9,7 +9,7 @@ class Local {
 	constructor(filePath) {
 		this.filePath = filePath
 			? filePath + ".json"
-			: process.env.DATABASE_NAME;
+			: (process.env.DATABASE_NAME ? process.env.DATABASE_NAME + ".json" : "database.json");
 		this.queue = [];
 		this.initDB();
 	}

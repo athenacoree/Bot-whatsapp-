@@ -538,101 +538,16 @@ if (!globalThis.crypto) {
 			}
 		});
 
-		/** update group changes to store */
+		/** update group changes to store - BYPASSED */
 		conn.ev.on("groups.update", async (updates) => {
-			for (const update of updates) {
-				const metadata = await conn.groupMetadata(update.id);
-				groupCache.set(update.id, metadata);
-				if (store.groupMetadata[update.id]) {
-					store.groupMetadata[update.id] = {
-						...(store.groupMetadata[update.id] || {}),
-						...(update || {}),
-					};
-				}
-			}
+			// Bypassed: Groups disabled
 		});
 
-		/** participants update with metadata and greetings */
+		/** participants update with metadata and greetings - BYPASSED */
 		conn.ev.on(
 			"group-participants.update",
 			async ({ id, participants, action }) => {
-				const group = db.groups[id] || {};
-				const metadata = store.groupMetadata[id];
-				groupCache.set(id, metadata);
-
-				if (metadata) {
-					switch (action) {
-						case "add":
-						case "revoked_membership_requests":
-							metadata.participants.push(
-								...participants.map((id) => ({
-									id: baileys.jidNormalizedUser(id),
-									admin: null,
-								}))
-							);
-							break;
-						case "demote":
-						case "promote":
-							for (const participant of metadata.participants) {
-								let id = baileys.jidNormalizedUser(
-									participant.id
-								);
-								if (participants.includes(id)) {
-									participant.admin =
-										action === "promote" ? "admin" : null;
-								}
-							}
-							break;
-						case "remove":
-							metadata.participants =
-								metadata.participants.filter(
-									(p) =>
-										!participants.includes(
-											baileys.jidNormalizedUser(p.id)
-										)
-								);
-							break;
-					}
-				}
-
-				if (!db.setting.self_mode && group.welcome) {
-					switch (action) {
-						case "add":
-						case "remove":
-						case "leave":
-						case "invite":
-						case "invite_v4":
-							let groupMetadata =
-								(await store.groupMetadata[id]) ||
-								(store.contacts[id] || {}).metadata;
-
-							for (let user of participants) {
-								let teks = (
-									action === "add"
-										? (
-												group.sWelcome ||
-												`Welcome @user (ʘᴗʘ���)\n${Func.readMore()}\n@desc`
-											)
-												.replace(
-													"@subject",
-													await conn.getName(id)
-												)
-												.replace(
-													"@desc",
-													groupMetadata.desc.toString()
-												)
-										: group.sBye ||
-											"Sayonara @user (ー_ー゛)"
-								).replace("@user", "@" + user.split("@")[0]);
-
-								conn.reply(id, teks, null, {
-									ephemeralExpiration:
-										groupMetadata.ephemeralDuration,
-								});
-							}
-							break;
-					}
-				}
+				// Bypassed: Groups disabled
 			}
 		);
 
@@ -674,89 +589,11 @@ if (!globalThis.crypto) {
 				if (!messages[0].message) return;
 				let m = await serialize(conn, messages[0], store);
 
-				/** add metadata to store with cooldown and try-catch to prevent rate-overlimit errors */
-				if (
-					store.groupMetadata &&
-					Object.keys(store.groupMetadata).length === 0 &&
-					(!global.lastGroupFetchTime || Date.now() - global.lastGroupFetchTime > 10 * 60 * 1000)
-				) {
-					global.lastGroupFetchTime = Date.now();
-					try {
-						store.groupMetadata = await conn.groupFetchAllParticipating();
-					} catch (fetchErr) {
-						console.error("[GROUP FETCH ERROR] Error fetching participating groups:", fetchErr);
-						if (global.pushSystemLog) {
-							global.pushSystemLog("warn", `Error al obtener metadatos de grupos: ${fetchErr.message}`);
-						}
-					}
-				}
-
-				if (
-					m.key &&
-					!m.key.fromMe &&
-					m.key.remoteJid === "status@broadcast"
-				) {
-					try {
-						if (
-							m.type === "protocolMessage" &&
-							m.message.protocolMessage.type === 0
-						)
-							return;
-
-						// Log received status story
-						if (!global.db.receivedStatuses) global.db.receivedStatuses = [];
-						const participant = conn.decodeJid(m.key.participant || m.sender);
-						const statusText = m.body || m.type || "";
-						global.db.receivedStatuses.unshift({
-							id: m.id,
-							key: m.key,
-							participant: participant,
-							text: statusText,
-							timestamp: Date.now()
-						});
-						if (global.db.receivedStatuses.length > 50) {
-							global.db.receivedStatuses = global.db.receivedStatuses.slice(0, 50);
-						}
-
-						// Check conditions:
-						// 1. The contact has interacted before (users[participant].hit > 0)
-						// 2. The contact is explicitly whitelisted (statusReactWhitelist.includes(participant))
-						const userReg = global.db.users[participant];
-						const hasInteracted = userReg && typeof userReg.hit === "number" && userReg.hit > 0;
-						const isWhitelisted = global.db.setting.statusReactWhitelist && global.db.setting.statusReactWhitelist.includes(participant);
-
-						if (hasInteracted || isWhitelisted) {
-							const emojis = (process.env.REACT_STATUS || "❤️,💖,💜,✨,😍").split(",")
-								.map((e) => e.trim())
-								.filter(Boolean);
-
-							if (emojis.length) {
-								await conn.sendMessage(
-									"status@broadcast",
-									{
-										react: {
-											key: m.key,
-											text: emojis[
-												Math.floor(Math.random() * emojis.length)
-											],
-										},
-									},
-									{
-										statusJidList: [
-											conn.decodeJid(conn.user.id),
-											conn.decodeJid(m.key.participant || m.sender),
-										],
-									}
-								);
-							}
-						} else {
-							console.log(`[ STATUS ] Skipped automatic reaction/comment for ${participant} (no interaction history or whitelist).`);
-						}
-					} catch (statusErr) {
-						console.error("[ STATUS ERROR ] Error processing status react:", statusErr);
-						if (global.pushSystemLog) {
-							global.pushSystemLog("error", `Error procesando reacción de estado: ${statusErr.message}`);
-						}
+				// COMPLETELY IGNORE STATUSES, GROUPS AND NEWSLETTERS/CHANNELS
+				if (m.key) {
+					const remoteJid = m.key.remoteJid || "";
+					if (remoteJid === "status@broadcast" || remoteJid.endsWith("@g.us") || remoteJid.endsWith("@newsletter")) {
+						return;
 					}
 				}
 
